@@ -27,16 +27,28 @@ def cargar_datos():
     
     df_esc["Nivel_Oferta"] = df_esc.apply(clasificar_nivel, axis=1)
 
-    # Identificación y normalización de la columna de modalidad
-    col_mod = None
-    for c in ["MODALIDAD", "modalidad", "Modalidad", "MODALIDAD_NORMALIZADA"]:
-        if c in df_esc.columns:
-            col_mod = c
-            break
-    if col_mod:
-        df_esc["Modalidad_Display"] = df_esc[col_mod].fillna("Sin modalidad asignada").astype(str).str.strip().str.title()
-    else:
-        df_esc["Modalidad_Display"] = "Común"
+    # Clasificación por modalidad a partir de las columnas 'M. ...'
+    def clasificar_modalidad(row):
+        mods = []
+        if row.get("M. TECNICA") == 1:
+            mods.append("Técnica")
+        if row.get("M. ESPECIAL") == 1:
+            mods.append("Especial")
+        if row.get("M. ARTISTICA") == 1:
+            mods.append("Artística")
+        if row.get("M. RURAL") == 1:
+            mods.append("Rural")
+        if row.get("M. BILINGÜE") == 1:
+            mods.append("Bilingüe")
+        if row.get("M. CONTEXTO DE ENCIERRO") == 1:
+            mods.append("Contexto de Encierro")
+        if row.get("M. DOMICILIARIA") == 1:
+            mods.append("Domiciliaria")
+        if row.get("M. COMUN") == 1:
+            mods.append("Común")
+        return ", ".join(mods) if mods else "Común"
+
+    df_esc["Modalidad_Display"] = df_esc.apply(clasificar_modalidad, axis=1)
 
     # Cargar barrios y asegurar coordenadas en grados (WGS84)
     gdf_barrios = gpd.read_file("barriosmunicipalidad.shp")
@@ -68,33 +80,42 @@ def cargar_datos():
     return df_esc, gdf_barrios, df_demanda
 
 df_escuelas, gdf_barrios, df_demanda = cargar_datos()
-st.write("Columnas en el Excel:", list(df_escuelas.columns))
 
 # 2. Barra lateral de filtros
 st.sidebar.title("Filtros del Tablero")
 
-# Filtro 1: Barrios (uno, varios o todos)
+# Filtro 1: Barrios
 barrios_disponibles = sorted([b for b in df_escuelas["BARRIOS_CORREGIDO"].dropna().unique()])
 barrios_sel = st.sidebar.multiselect(
     "Seleccionar Barrio(s):",
     options=barrios_disponibles,
-    placeholder="Todos los barrios (o elegí uno o más)"
+    placeholder="Todos los barrios (o seleccioná uno o más)"
 )
 
-# Filtro 2: Niveles Educativos
+# Filtro 2: Niveles
 niveles_cols = ["N. ED. TERMPRANA", "N.INICIAL", "N. PRIMARIO", "N. SECUNDARIO", "N. SUPERIOR"]
 niveles_presentes = [c for c in niveles_cols if c in df_escuelas.columns]
 niveles_sel = st.sidebar.multiselect("Filtrar por Niveles:", niveles_presentes, default=niveles_presentes[:4])
 
-# Filtro 3: Modalidad Educativa
-modalidades_disponibles = sorted([m for m in df_escuelas["Modalidad_Display"].dropna().unique()])
+# Filtro 3: Modalidades (detecta las columnas M. presentes)
+mapa_cols_mod = {
+    "M. COMUN": "Común",
+    "M. ESPECIAL": "Especial",
+    "M. TECNICA": "Técnica",
+    "M. RURAL": "Rural",
+    "M. ARTISTICA": "Artística",
+    "M. BILINGÜE": "Bilingüe"
+}
+cols_mod_presentes = [c for c in mapa_cols_mod.keys() if c in df_escuelas.columns]
+nombres_mod_presentes = [mapa_cols_mod[c] for c in cols_mod_presentes]
+
 modalidades_sel = st.sidebar.multiselect(
     "Filtrar por Modalidad:",
-    options=modalidades_disponibles,
-    default=modalidades_disponibles
+    options=nombres_mod_presentes,
+    default=nombres_mod_presentes
 )
 
-# Aplicación progresiva de los filtros
+# Filtrado progresivo
 df_filtrado = df_escuelas.copy()
 
 if barrios_sel:
@@ -104,7 +125,9 @@ if niveles_sel:
     df_filtrado = df_filtrado[df_filtrado[niveles_sel].sum(axis=1) > 0]
 
 if modalidades_sel:
-    df_filtrado = df_filtrado[df_filtrado["Modalidad_Display"].isin(modalidades_sel)]
+    cols_activas = [c for c, nom in mapa_cols_mod.items() if nom in modalidades_sel and c in df_filtrado.columns]
+    if cols_activas:
+        df_filtrado = df_filtrado[df_filtrado[cols_activas].sum(axis=1) > 0]
 
 # 3. Encabezado y KPIs
 st.title("Tablero Educativo Corrientes - INDEC vs Oferta")
@@ -141,10 +164,10 @@ with col_mapa:
         zoom_val = 12.8 if len(barrios_sel) > 1 else 13.5
 
     paleta_colores = [
-        "#E74C3C",  # Rojo / Secundaria
-        "#2ECC71",  # Verde / Primaria
-        "#F39C12",  # Naranja / Inicial
-        "#8E44AD",  # Violeta / Temprana
+        "#E74C3C",  # Rojo
+        "#2ECC71",  # Verde
+        "#F39C12",  # Naranja
+        "#8E44AD",  # Violeta
         "#1ABC9C",  # Turquesa
         "#3498DB",  # Azul
         "#E67E22",  # Cobre
@@ -153,7 +176,6 @@ with col_mapa:
 
     campo_color = "Nivel_Oferta" if criterio_color == "Nivel Educativo" else "Modalidad_Display"
 
-    # Crear mapa base con puntos o coordenadas neutras
     if ver_escuelas and not df_filtrado.empty:
         kwargs_mapa = {
             "data_frame": df_filtrado,
@@ -184,13 +206,11 @@ with col_mapa:
     else:
         fig_mapa = px.scatter_mapbox(**kwargs_mapa, mapbox_style="open-street-map")
 
-    # Formatear el cartel emergente sin prefijos repetidos
     if ver_escuelas and not df_filtrado.empty:
         fig_mapa.update_traces(
             hovertemplate="<b>%{hovertext}</b><br>%{customdata[0]}<br>Nivel: %{customdata[1]}<br>Modalidad: %{customdata[2]}<br>CUE: %{customdata[3]}<extra></extra>"
         )
 
-    # Trazar los límites de los barrios con líneas vectoriales de alta precisión
     if ver_barrios:
         lats_barrios = []
         lons_barrios = []
@@ -232,7 +252,6 @@ with col_mapa:
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0)
     )
     
-    # Renderizado interactivo con captura de clics
     evento_mapa = st.plotly_chart(
         fig_mapa, 
         use_container_width=True, 
@@ -241,7 +260,6 @@ with col_mapa:
         key="mapa_interactivo"
     )
 
-    # Detalle en pantalla al tocar una escuela
     if evento_mapa and "selection" in evento_mapa and evento_mapa["selection"]["points"]:
         p_sel = evento_mapa["selection"]["points"][0]
         if "point_index" in p_sel and p_sel["point_index"] < len(df_filtrado):
@@ -277,7 +295,7 @@ with col_grafico:
 
 st.markdown("---")
 
-# 5. Fila Inferior: Demanda INDEC vs Oferta y Proporción por Nivel
+# 5. Fila Inferior: Demanda INDEC vs Oferta y Proporción
 col_tabla, col_dona = st.columns([1.2, 0.8])
 
 with col_tabla:

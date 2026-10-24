@@ -70,6 +70,54 @@ st.divider()
 # 4. Sección de Mapa Interactivo
 st.subheader("Mapa Territorial: Polígonos de Barrios y Establecimientos")
 
+centro_lat, centro_lon = -27.4692, -58.8306
+zoom_inicial = 12
+
+if barrio_sel != "Todos los barrios" and not df_filtrado.empty:
+    centro_lat = float(df_filtrado["LATITUD"].mean())
+    centro_lon = float(df_filtrado["LONGITUD"].mean())
+    zoom_inicial = 14
+
+m = folium.Map(location=[centro_lat, centro_lon], zoom_start=zoom_inicial, tiles="OpenStreetMap")
+
+# Dibujar las áreas de los barrios
+try:
+    folium.GeoJson(
+        gdf_barrios,
+        name="Barrios",
+        style_function=lambda x: {
+            "fillColor": "#3388ff",
+            "color": "#185a9d",
+            "weight": 1.5,
+            "fillOpacity": 0.2
+        }
+    ).add_to(m)
+except Exception:
+    pass
+
+# Dibujar los puntos de las escuelas
+for _, row in df_filtrado.iterrows():
+    color_punto = "blue"
+    if row["N. SECUNDARIO"] == 1:
+        color_punto = "red"
+    elif row["N. PRIMARIO"] == 1:
+        color_punto = "green"
+    elif row["N.INICIAL"] == 1:
+        color_punto = "orange"
+
+    folium.CircleMarker(
+        location=[row["LATITUD"], row["LONGITUD"]],
+        radius=5,
+        color=color_punto,
+        fill=True,
+        fill_color=color_punto,
+        fill_opacity=0.8,
+        popup=f"{row['fna']} - {row['BARRIOS_CORREGIDO']}",
+        tooltip=str(row["fna"])
+    ).add_to(m)
+
+# Renderizar el mapa de forma fluida
+st_folium(m, use_container_width=True, height=520, returned_objects=[])
 # Coordenadas de Corrientes Capital
 centro_lat, centro_lon = -27.4692, -58.8306
 zoom_inicial = 12

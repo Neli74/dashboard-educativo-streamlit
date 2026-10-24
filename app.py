@@ -89,7 +89,7 @@ barrios_sel = st.sidebar.multiselect(
     placeholder="Todos los barrios (o seleccioná uno o más)"
 )
 
-# Filtro 2: Niveles con nombres limpios y todos seleccionados por defecto
+# Filtro 2: Niveles con nombres limpios y todos activos por defecto (incluye Superior)
 mapa_niveles = {
     "N. SECUNDARIO": "Secundaria",
     "N. PRIMARIO": "Primaria",
@@ -97,27 +97,16 @@ mapa_niveles = {
     "N. SUPERIOR": "Superior",
     "N. ED. TERMPRANA": "Educación Temprana / CDI"
 }
-
-# Columnas reales presentes en el Excel
 niveles_validos = [c for c in mapa_niveles.keys() if c in df_escuelas.columns]
 nombres_niveles_disponibles = [mapa_niveles[c] for c in niveles_validos]
 
 niveles_sel = st.sidebar.multiselect(
     "Filtrar por Niveles:",
     options=nombres_niveles_disponibles,
-    default=nombres_niveles_disponibles  # Marca TODOS los niveles por defecto, incluyendo Superior
-)
-# Columnas reales presentes en el Excel
-niveles_validos = [c for c in mapa_niveles.keys() if c in df_escuelas.columns]
-nombres_niveles_disponibles = [mapa_niveles[c] for c in niveles_validos]
-
-niveles_sel = st.sidebar.multiselect(
-    "Filtrar por Niveles:",
-    options=nombres_niveles_disponibles,
-    default=nombres_niveles_disponibles  # Marca TODOS los niveles por defecto, incluyendo Superior
+    default=nombres_niveles_disponibles
 )
 
-# Filtro 3: Modalidades
+# Filtro 3: Modalidades Estándar
 modalidades_unicas = [
     "Común", 
     "Especial", 
@@ -143,7 +132,9 @@ if barrios_sel:
     df_filtrado = df_filtrado[df_filtrado["BARRIOS_CORREGIDO"].isin(barrios_sel)]
 
 if niveles_sel:
-    df_filtrado = df_filtrado[df_filtrado[niveles_sel].sum(axis=1) > 0]
+    cols_niveles_activas = [col for col, nom in mapa_niveles.items() if nom in niveles_sel and col in df_filtrado.columns]
+    if cols_niveles_activas:
+        df_filtrado = df_filtrado[df_filtrado[cols_niveles_activas].sum(axis=1) > 0]
 
 if modalidades_sel:
     df_filtrado = df_filtrado[df_filtrado["Modalidad_Display"].isin(modalidades_sel)]
@@ -191,7 +182,7 @@ with col_mapa:
         "#3498DB",  # Azul
         "#E67E22",  # Cobre
         "#95A5A6",  # Gris
-        "#D35400"   # Naranja oscuro
+        "#D35400"   # Naranja fuerte
     ]
 
     campo_color = "Nivel_Oferta" if criterio_color == "Nivel Educativo" else "Modalidad_Display"

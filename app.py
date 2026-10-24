@@ -71,4 +71,5 @@ st.divider()
 st.subheader("Mapa Territorial: Polígonos de Barrios y Establecimientos")
 
 # Coordenadas de Corrientes Capital
-centro_lat, centro_lon = -27.4
+centro_lat, centro_lon = -27.4692, -58.8306
+zoom_inicial = 12

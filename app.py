@@ -129,7 +129,7 @@ with col_mapa:
         "#95A5A6"   # Gris
     ]
 
-    campo_color = "Nivel_Oferta" if criterio_color == "Nivel Educativo" else "Modalidad_Display"
+   campo_color = "Nivel_Oferta" if criterio_color == "Nivel Educativo" else "Modalidad_Display"
 
     # Crear mapa base con puntos o coordenadas neutras
     if ver_escuelas and not df_filtrado.empty:
@@ -140,13 +140,11 @@ with col_mapa:
             "color": campo_color,
             "color_discrete_sequence": paleta_colores,
             "hover_name": "fna",
-            "hover_data": {"BARRIOS_CORREGIDO": True, "cue": True, "LATITUD": False, "LONGITUD": False, campo_color: False},
-            "labels": {"BARRIOS_CORREGIDO": "Barrio", "cue": "CUE"},
+            "custom_data": ["BARRIOS_CORREGIDO", "Nivel_Oferta", "Modalidad_Display", "cue"],
             "zoom": zoom_val,
             "center": {"lat": centro_lat, "lon": centro_lon},
             "height": 470
         }
-       
     else:
         df_vacio = pd.DataFrame({"LATITUD": [centro_lat], "LONGITUD": [centro_lon]})
         kwargs_mapa = {
@@ -164,6 +162,12 @@ with col_mapa:
     else:
         fig_mapa = px.scatter_mapbox(**kwargs_mapa, mapbox_style="open-street-map")
 
+    # Formatear el cartel emergente completo y sin prefijos repetidos
+    if ver_escuelas and not df_filtrado.empty:
+        fig_mapa.update_traces(
+            hovertemplate="<b>%{hovertext}</b><br>%{customdata[0]}<br>Nivel: %{customdata[1]}<br>Modalidad: %{customdata[2]}<br>CUE: %{customdata[3]}<extra></extra>"
+        )
+        
     # Trazar los límites de los barrios con líneas vectoriales de alta precisión
     if ver_barrios:
         lats_barrios = []

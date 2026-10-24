@@ -89,10 +89,24 @@ barrios_sel = st.sidebar.multiselect(
     placeholder="Todos los barrios (o seleccioná uno o más)"
 )
 
-# Filtro 2: Niveles
-niveles_cols = ["N. ED. TERMPRANA", "N.INICIAL", "N. PRIMARIO", "N. SECUNDARIO", "N. SUPERIOR"]
-niveles_presentes = [c for c in niveles_cols if c in df_escuelas.columns]
-niveles_sel = st.sidebar.multiselect("Filtrar por Niveles:", niveles_presentes, default=niveles_presentes[:4])
+# Filtro 2: Niveles con nombres limpios y todos seleccionados por defecto
+mapa_niveles = {
+    "N. SECUNDARIO": "Secundaria",
+    "N. PRIMARIO": "Primaria",
+    "N.INICIAL": "Inicial",
+    "N. SUPERIOR": "Superior",
+    "N. ED. TERMPRANA": "Educación Temprana / CDI"
+}
+
+# Columnas reales presentes en el Excel
+niveles_validos = [c for c in mapa_niveles.keys() if c in df_escuelas.columns]
+nombres_niveles_disponibles = [mapa_niveles[c] for c in niveles_validos]
+
+niveles_sel = st.sidebar.multiselect(
+    "Filtrar por Niveles:",
+    options=nombres_niveles_disponibles,
+    default=nombres_niveles_disponibles  # Marca TODOS los niveles por defecto, incluyendo Superior
+)
 
 # Filtro 3: Modalidades
 modalidades_unicas = [

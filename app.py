@@ -27,28 +27,25 @@ def cargar_datos():
     
     df_esc["Nivel_Oferta"] = df_esc.apply(clasificar_nivel, axis=1)
 
-    # Clasificación por modalidad a partir de las columnas 'M. ...'
-    def clasificar_modalidad(row):
-        mods = []
-        if row.get("M. TECNICA") == 1:
-            mods.append("Técnica")
-        if row.get("M. ESPECIAL") == 1:
-            mods.append("Especial")
-        if row.get("M. ARTISTICA") == 1:
-            mods.append("Artística")
-        if row.get("M. RURAL") == 1:
-            mods.append("Rural")
-        if row.get("M. BILINGÜE") == 1:
-            mods.append("Bilingüe")
+    # Clasificación jerárquica con los nombres exactos de las columnas M.
+    def clasificar_modalidad_estricta(row):
         if row.get("M. CONTEXTO DE ENCIERRO") == 1:
-            mods.append("Contexto de Encierro")
-        if row.get("M. DOMICILIARIA") == 1:
-            mods.append("Domiciliaria")
-        if row.get("M. COMUN") == 1:
-            mods.append("Común")
-        return ", ".join(mods) if mods else "Común"
+            return "Contexto de Encierro"
+        if row.get("M. EPJA") == 1:
+            return "Jóvenes y Adultos (EPJA)"
+        if row.get("M. ESPECIAL") == 1:
+            return "Especial"
+        if row.get("M. TECNICA") == 1:
+            return "Técnica"
+        if row.get("M. ARTISTICA") == 1:
+            return "Artística"
+        if row.get("M. RURAL") == 1:
+            return "Rural"
+        if row.get("M. BILINGÜE") == 1:
+            return "Bilingüe"
+        return "Común"
 
-    df_esc["Modalidad_Display"] = df_esc.apply(clasificar_modalidad, axis=1)
+    df_esc["Modalidad_Display"] = df_esc.apply(clasificar_modalidad_estricta, axis=1)
 
     # Cargar barrios y asegurar coordenadas en grados (WGS84)
     gdf_barrios = gpd.read_file("barriosmunicipalidad.shp")
@@ -97,25 +94,26 @@ niveles_cols = ["N. ED. TERMPRANA", "N.INICIAL", "N. PRIMARIO", "N. SECUNDARIO",
 niveles_presentes = [c for c in niveles_cols if c in df_escuelas.columns]
 niveles_sel = st.sidebar.multiselect("Filtrar por Niveles:", niveles_presentes, default=niveles_presentes[:4])
 
-# Filtro 3: Modalidades (detecta las columnas M. presentes)
-mapa_cols_mod = {
-    "M. COMUN": "Común",
-    "M. ESPECIAL": "Especial",
-    "M. TECNICA": "Técnica",
-    "M. RURAL": "Rural",
-    "M. ARTISTICA": "Artística",
-    "M. BILINGÜE": "Bilingüe"
-}
-cols_mod_presentes = [c for c in mapa_cols_mod.keys() if c in df_escuelas.columns]
-nombres_mod_presentes = [mapa_cols_mod[c] for c in cols_mod_presentes]
+# Filtro 3: Modalidades
+modalidades_unicas = [
+    "Común", 
+    "Especial", 
+    "Técnica", 
+    "Artística", 
+    "Rural", 
+    "Jóvenes y Adultos (EPJA)",
+    "Contexto de Encierro", 
+    "Bilingüe"
+]
+modalidades_presentes = [m for m in modalidades_unicas if m in df_escuelas["Modalidad_Display"].values]
 
 modalidades_sel = st.sidebar.multiselect(
     "Filtrar por Modalidad:",
-    options=nombres_mod_presentes,
-    default=nombres_mod_presentes
+    options=modalidades_presentes,
+    default=modalidades_presentes
 )
 
-# Filtrado progresivo
+# Aplicación progresiva de filtros
 df_filtrado = df_escuelas.copy()
 
 if barrios_sel:
@@ -125,9 +123,7 @@ if niveles_sel:
     df_filtrado = df_filtrado[df_filtrado[niveles_sel].sum(axis=1) > 0]
 
 if modalidades_sel:
-    cols_activas = [c for c, nom in mapa_cols_mod.items() if nom in modalidades_sel and c in df_filtrado.columns]
-    if cols_activas:
-        df_filtrado = df_filtrado[df_filtrado[cols_activas].sum(axis=1) > 0]
+    df_filtrado = df_filtrado[df_filtrado["Modalidad_Display"].isin(modalidades_sel)]
 
 # 3. Encabezado y KPIs
 st.title("Tablero Educativo Corrientes - INDEC vs Oferta")
@@ -171,7 +167,8 @@ with col_mapa:
         "#1ABC9C",  # Turquesa
         "#3498DB",  # Azul
         "#E67E22",  # Cobre
-        "#95A5A6"   # Gris
+        "#95A5A6",  # Gris
+        "#D35400"   # Naranja oscuro
     ]
 
     campo_color = "Nivel_Oferta" if criterio_color == "Nivel Educativo" else "Modalidad_Display"
@@ -267,7 +264,7 @@ with col_mapa:
             st.success(
                 f"🏫 **Establecimiento:** {escuela_tocada['fna']}  \n"
                 f"🏘️ **Barrio:** {escuela_tocada['BARRIOS_CORREGIDO']}  \n"
-                f"📋 **CUE:** {escuela_tocada['cue']} | **Nivel:** {escuela_tocada['Nivel_Oferta']}"
+                f"📋 **CUE:** {escuela_tocada['cue']} | **Nivel:** {escuela_tocada['Nivel_Oferta']} | **Modalidad:** {escuela_tocada['Modalidad_Display']}"
             )
 
 with col_grafico:
@@ -314,22 +311,43 @@ with col_tabla:
 
 with col_dona:
     if len(barrios_sel) == 1:
-        titulo_dona = f"Proporción ({criterio_color}) - {barrios_sel[0]}"
+        sufijo_b = f"- {barrios_sel[0]}"
     elif len(barrios_sel) > 1:
-        titulo_dona = f"Proporción ({criterio_color}) - {len(barrios_sel)} Barrios"
+        sufijo_b = f"- {len(barrios_sel)} Barrios"
     else:
-        titulo_dona = f"Proporción ({criterio_color}) - Toda la Capital"
+        sufijo_b = "- Toda la Capital"
 
-    st.subheader(titulo_dona)
-    dist = df_filtrado[campo_color].value_counts().reset_index()
-    dist.columns = ["Categoria", "Cantidad"]
-    
-    fig_dona = px.pie(
-        dist,
-        names="Categoria",
-        values="Cantidad",
-        hole=0.45,
-        color_discrete_sequence=paleta_colores
-    )
-    fig_dona.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=280)
-    st.plotly_chart(fig_dona, use_container_width=True)
+    if criterio_color == "Nivel Educativo":
+        st.subheader(f"Distribución por Nivel {sufijo_b}")
+        dist = df_filtrado["Nivel_Oferta"].value_counts().reset_index()
+        dist.columns = ["Nivel", "Cantidad"]
+        fig_sec = px.pie(
+            dist,
+            names="Nivel",
+            values="Cantidad",
+            hole=0.45,
+            color_discrete_sequence=paleta_colores
+        )
+        fig_sec.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=300)
+    else:
+        st.subheader(f"Oferta por Modalidad {sufijo_b}")
+        dist = df_filtrado["Modalidad_Display"].value_counts().reset_index()
+        dist.columns = ["Modalidad", "Cantidad"]
+        
+        fig_sec = px.bar(
+            dist,
+            x="Cantidad",
+            y="Modalidad",
+            orientation="h",
+            text_auto=True,
+            color_discrete_sequence=["#3498DB"]
+        )
+        fig_sec.update_layout(
+            yaxis=dict(autorange="reversed"),
+            margin=dict(l=10, r=10, t=10, b=10),
+            xaxis_title="Cantidad de Establecimientos",
+            yaxis_title="",
+            height=300
+        )
+
+    st.plotly_chart(fig_sec, use_container_width=True)

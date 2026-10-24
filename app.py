@@ -11,6 +11,7 @@ st.set_page_config(page_title="Tablero Educativo Corrientes - INDEC vs Oferta", 
 def cargar_datos():
     df_esc = pd.read_excel("ESCUELAS_DEFINITIVA.xlsx")
     
+    # Clasificación por nivel educativo
     def clasificar_nivel(row):
         if row.get("N. SECUNDARIO") == 1:
             return "Secundaria"
@@ -26,16 +27,18 @@ def cargar_datos():
     
     df_esc["Nivel_Oferta"] = df_esc.apply(clasificar_nivel, axis=1)
 
+    # Identificación y normalización de la columna de modalidad
     col_mod = None
     for c in ["MODALIDAD", "modalidad", "Modalidad", "MODALIDAD_NORMALIZADA"]:
         if c in df_esc.columns:
             col_mod = c
             break
     if col_mod:
-        df_esc["Modalidad_Display"] = df_esc[col_mod].fillna("Sin modalidad asignada").astype(str)
+        df_esc["Modalidad_Display"] = df_esc[col_mod].fillna("Sin modalidad asignada").astype(str).str.strip().str.title()
     else:
         df_esc["Modalidad_Display"] = "Común"
 
+    # Cargar barrios y asegurar coordenadas en grados (WGS84)
     gdf_barrios = gpd.read_file("barriosmunicipalidad.shp")
     bounds = gdf_barrios.total_bounds
     if bounds[0] < -180 or bounds[0] > 180 or bounds[2] < -180 or bounds[2] > 180:
@@ -47,6 +50,7 @@ def cargar_datos():
         if gdf_barrios.crs is None or gdf_barrios.crs != "EPSG:4326":
             gdf_barrios = gdf_barrios.set_crs(epsg=4326, allow_override=True)
         
+    # Demanda INDEC vs Oferta
     n_maternal = int(df_esc["N. ED. TERMPRANA"].sum()) if "N. ED. TERMPRANA" in df_esc.columns else 32
     n_inicial = int(df_esc["N.INICIAL"].sum()) if "N.INICIAL" in df_esc.columns else 136
     n_primario = int(df_esc["N. PRIMARIO"].sum()) if "N. PRIMARIO" in df_esc.columns else 136
@@ -68,6 +72,7 @@ df_escuelas, gdf_barrios, df_demanda = cargar_datos()
 # 2. Barra lateral de filtros
 st.sidebar.title("Filtros del Tablero")
 
+# Filtro 1: Barrios (uno, varios o todos)
 barrios_disponibles = sorted([b for b in df_escuelas["BARRIOS_CORREGIDO"].dropna().unique()])
 barrios_sel = st.sidebar.multiselect(
     "Seleccionar Barrio(s):",
@@ -75,19 +80,30 @@ barrios_sel = st.sidebar.multiselect(
     placeholder="Todos los barrios (o elegí uno o más)"
 )
 
+# Filtro 2: Niveles Educativos
 niveles_cols = ["N. ED. TERMPRANA", "N.INICIAL", "N. PRIMARIO", "N. SECUNDARIO", "N. SUPERIOR"]
 niveles_presentes = [c for c in niveles_cols if c in df_escuelas.columns]
 niveles_sel = st.sidebar.multiselect("Filtrar por Niveles:", niveles_presentes, default=niveles_presentes[:4])
 
+# Filtro 3: Modalidad Educativa
+modalidades_disponibles = sorted([m for m in df_escuelas["Modalidad_Display"].dropna().unique()])
+modalidades_sel = st.sidebar.multiselect(
+    "Filtrar por Modalidad:",
+    options=modalidades_disponibles,
+    default=modalidades_disponibles
+)
+
+# Aplicación progresiva de los filtros
 df_filtrado = df_escuelas.copy()
 
-# Filtro multi-barrio
 if barrios_sel:
     df_filtrado = df_filtrado[df_filtrado["BARRIOS_CORREGIDO"].isin(barrios_sel)]
 
-# Filtro por niveles
 if niveles_sel:
     df_filtrado = df_filtrado[df_filtrado[niveles_sel].sum(axis=1) > 0]
+
+if modalidades_sel:
+    df_filtrado = df_filtrado[df_filtrado["Modalidad_Display"].isin(modalidades_sel)]
 
 # 3. Encabezado y KPIs
 st.title("Tablero Educativo Corrientes - INDEC vs Oferta")
@@ -246,6 +262,7 @@ with col_grafico:
         x="Cantidad_Escuelas",
         y="Barrio",
         orientation="h",
+        text_auto=True,
         color_discrete_sequence=["#27AE60"]
     )
     fig_barras.update_layout(
@@ -277,11 +294,10 @@ with col_tabla:
     )
 
 with col_dona:
-    # Título adaptado a la selección
     if len(barrios_sel) == 1:
         titulo_dona = f"Proporción ({criterio_color}) - {barrios_sel[0]}"
     elif len(barrios_sel) > 1:
-        titulo_dona = f"Proporción ({criterio_color}) - {len(barrios_sel)} Barrios seleccionados"
+        titulo_dona = f"Proporción ({criterio_color}) - {len(barrios_sel)} Barrios"
     else:
         titulo_dona = f"Proporción ({criterio_color}) - Toda la Capital"
 

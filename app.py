@@ -132,7 +132,7 @@ with col_mapa:
     campo_color = "Nivel_Oferta" if criterio_color == "Nivel Educativo" else "Modalidad_Display"
 
     # Crear mapa base con puntos o coordenadas neutras
-   if ver_escuelas and not df_filtrado.empty:
+    if ver_escuelas and not df_filtrado.empty:
         kwargs_mapa = {
             "data_frame": df_filtrado,
             "lat": "LATITUD",

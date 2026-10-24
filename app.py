@@ -1,10 +1,8 @@
 import streamlit as st
 import pandas as pd
 import geopandas as gpd
-import folium
-from streamlit_folium import st_folium
+import json
 import plotly.express as px
-import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Dashboard Educativo Corrientes", layout="wide")
 
@@ -14,12 +12,26 @@ def cargar_datos():
     # Cargar escuelas
     df_esc = pd.read_excel("ESCUELAS_DEFINITIVA.xlsx")
     
+    # Asignar nivel para colorear puntos
+    def definir_nivel(row):
+        if row.get("N. SECUNDARIO") == 1:
+            return "Secundario"
+        elif row.get("N. PRIMARIO") == 1:
+            return "Primario"
+        elif row.get("N.INICIAL") == 1:
+            return "Inicial"
+        elif row.get("N. SUPERIOR") == 1:
+            return "Superior"
+        return "Otro"
+    
+    df_esc["Nivel_Oferta"] = df_esc.apply(definir_nivel, axis=1)
+    
     # Cargar barrios (Shapefile)
     gdf_barrios = gpd.read_file("barriosmunicipalidad.shp")
-    if gdf_barrios.crs != "EPSG:4326":
-        gdf_barrios = gdf_barrios.to_crs(epsg=4326)
+    if gdf_barrios.crs is None or gdf_barrios.crs != "EPSG:4326":
+        gdf_barrios = gdf_barrios.set_crs(epsg=4326, allow_override=True)
         
-    # Cargar totales INDEC (Censo 2022 Capital)
+    # Totales INDEC (Censo 2022 Capital)
     demanda = {
         "Nivel": ["Maternal / 0 a 3", "Inicial (4 y 5)", "Primario", "Secundario", "Superior"],
         "Alumnos_INDEC": [7321, 11116, 46040, 50204, 16331],
@@ -47,7 +59,7 @@ barrio_sel = st.sidebar.selectbox("Seleccionar Barrio:", lista_barrios)
 niveles_disponibles = ["N.INICIAL", "N. PRIMARIO", "N. SECUNDARIO", "N. SUPERIOR", "N. ED. TERMPRANA"]
 nivel_sel = st.sidebar.multiselect("Niveles Educativos a mostrar:", niveles_disponibles, default=["N.INICIAL", "N. PRIMARIO", "N. SECUNDARIO"])
 
-# Filtrar escuelas
+# Filtrado reactivo
 df_filtrado = df_escuelas.copy()
 if barrio_sel != "Todos los barrios":
     df_filtrado = df_filtrado[df_filtrado["BARRIOS_CORREGIDO"] == barrio_sel]
@@ -67,59 +79,79 @@ col3.metric("Mayor Demanda", "Secundaria (50.204)")
 col4.metric("Barrio con más oferta", "B° Pirayuí (29)")
 
 st.divider()
-# 4. Sección de Mapa Interactivo
+
+# 4. Sección de Mapa Interactivo con Plotly
 st.subheader("Mapa Territorial: Polígonos de Barrios y Establecimientos")
 
 centro_lat, centro_lon = -27.4692, -58.8306
-zoom_inicial = 12
+zoom_inicial = 11.5
 
 if barrio_sel != "Todos los barrios" and not df_filtrado.empty:
     centro_lat = float(df_filtrado["LATITUD"].mean())
     centro_lon = float(df_filtrado["LONGITUD"].mean())
-    zoom_inicial = 14
+    zoom_inicial = 13.5
 
-# Crear mapa base
-m = folium.Map(location=[centro_lat, centro_lon], zoom_start=zoom_inicial, tiles="CartoDB positron")
+# Mapa base con puntos de escuelas
+fig_mapa = px.scatter_mapbox(
+    df_filtrado,
+    lat="LATITUD",
+    lon="LONGITUD",
+    color="Nivel_Oferta",
+    color_discrete_map={
+        "Secundario": "#EF553B",
+        "Primario": "#00CC96",
+        "Inicial": "#FFA15A",
+        "Superior": "#AB63FA",
+        "Otro": "#636EFA"
+    },
+    hover_name="fna",
+    hover_data={"BARRIOS_CORREGIDO": True, "cue": True, "LATITUD": False, "LONGITUD": False, "Nivel_Oferta": False},
+    zoom=zoom_inicial,
+    center={"lat": centro_lat, "lon": centro_lon},
+    mapbox_style="open-street-map",
+    height=580
+)
 
-# Agregar polígonos de barrios si están disponibles
+# Incorporar las capas de polígonos de los barrios
 try:
-    folium.GeoJson(
-        gdf_barrios.to_json(),
-        name="Barrios",
-        style_function=lambda x: {
-            "fillColor": "#3388ff",
-            "color": "#185a9d",
-            "weight": 1.5,
-            "fillOpacity": 0.2
-        }
-    ).add_to(m)
+    geojson_barrios = json.loads(gdf_barrios.to_json())
+    fig_mapa.update_layout(
+        mapbox_layers=[
+            {
+                "sourcetype": "geojson",
+                "source": geojson_barrios,
+                "type": "fill",
+                "color": "rgba(41, 128, 185, 0.15)",
+                "below": "traces"
+            },
+            {
+                "sourcetype": "geojson",
+                "source": geojson_barrios,
+                "type": "line",
+                "color": "#2980b9",
+                "line": {"width": 1.2}
+            }
+        ]
+    )
 except Exception:
     pass
 
-# Agregar puntos de escuelas
-for _, row in df_filtrado.iterrows():
-    color_punto = "blue"
-    if row["N. SECUNDARIO"] == 1:
-        color_punto = "red"
-    elif row["N. PRIMARIO"] == 1:
-        color_punto = "green"
-    elif row["N.INICIAL"] == 1:
-        color_punto = "orange"
+fig_mapa.update_layout(margin=dict(l=0, r=0, t=10, b=10), legend_title_text="Nivel Educativo")
+st.plotly_chart(fig_mapa, use_container_width=True)
 
-    folium.CircleMarker(
-        location=[float(row["LATITUD"]), float(row["LONGITUD"])],
-        radius=5,
-        color=color_punto,
-        fill=True,
-        fill_color=color_punto,
-        fill_opacity=0.85,
-        popup=f"{row['fna']} ({row['BARRIOS_CORREGIDO']})",
-        tooltip=str(row["fna"])
-    ).add_to(m)
+st.divider()
 
-# Guardar en archivo temporal y renderizar el contenido completo
-m.save("mapa_temp.html")
-with open("mapa_temp.html", "r", encoding="utf-8") as f:
-    mapa_html = f.read()
+# 5. Sección de Tablas y Ratios
+col_izq, col_der = st.columns([1, 1])
 
-components.html(mapa_html, height=560, scrolling=False)
+with col_izq:
+    st.subheader("Demanda INDEC vs Capacidad Edilicia")
+    st.dataframe(df_demanda, use_container_width=True)
+
+with col_der:
+    st.subheader("Top 10 Barrios con más Escuelas")
+    top_barrios = df_escuelas["BARRIOS_CORREGIDO"].value_counts().head(10).reset_index()
+    top_barrios.columns = ["Barrio", "Cantidad"]
+    fig = px.bar(top_barrios, x="Cantidad", y="Barrio", orientation="h", color="Cantidad", color_continuous_scale="Blues")
+    fig.update_layout(yaxis=dict(autorange="reversed"), margin=dict(l=0, r=0, t=10, b=10))
+    st.plotly_chart(fig, use_container_width=True)

@@ -107,6 +107,15 @@ niveles_sel = st.sidebar.multiselect(
     options=nombres_niveles_disponibles,
     default=nombres_niveles_disponibles  # Marca TODOS los niveles por defecto, incluyendo Superior
 )
+# Columnas reales presentes en el Excel
+niveles_validos = [c for c in mapa_niveles.keys() if c in df_escuelas.columns]
+nombres_niveles_disponibles = [mapa_niveles[c] for c in niveles_validos]
+
+niveles_sel = st.sidebar.multiselect(
+    "Filtrar por Niveles:",
+    options=nombres_niveles_disponibles,
+    default=nombres_niveles_disponibles  # Marca TODOS los niveles por defecto, incluyendo Superior
+)
 
 # Filtro 3: Modalidades
 modalidades_unicas = [

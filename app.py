@@ -203,8 +203,26 @@ with col_mapa:
         margin=dict(l=0, r=0, t=10, b=10),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0)
     )
-    st.plotly_chart(fig_mapa, use_container_width=True)
+    # Renderizado interactivo con captura de clics
+    evento_mapa = st.plotly_chart(
+        fig_mapa, 
+        use_container_width=True, 
+        on_select="rerun", 
+        selection_mode="points",
+        key="mapa_interactivo"
+    )
 
+    # Detalle en pantalla al tocar una escuela
+    if evento_mapa and "selection" in evento_mapa and evento_mapa["selection"]["points"]:
+        p_sel = evento_mapa["selection"]["points"][0]
+        if "point_index" in p_sel and p_sel["point_index"] < len(df_filtrado):
+            escuela_tocada = df_filtrado.iloc[p_sel["point_index"]]
+            st.success(
+                f"🏫 **Establecimiento:** {escuela_tocada['fna']}  \n"
+                f"🏘️ **Barrio:** {escuela_tocada['BARRIOS_CORREGIDO']}  \n"
+                f"📋 **CUE:** {escuela_tocada['cue']} | **Nivel:** {escuela_tocada['Nivel_Oferta']}"
+            )
+            
 with col_grafico:
     st.subheader("Distribución de Escuelas por Barrio (Capital)")
     

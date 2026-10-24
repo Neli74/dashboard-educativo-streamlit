@@ -67,7 +67,6 @@ col3.metric("Mayor Demanda", "Secundaria (50.204)")
 col4.metric("Barrio con más oferta", "B° Pirayuí (29)")
 
 st.divider()
-
 # 4. Sección de Mapa Interactivo
 st.subheader("Mapa Territorial: Polígonos de Barrios y Establecimientos")
 
@@ -79,12 +78,13 @@ if barrio_sel != "Todos los barrios" and not df_filtrado.empty:
     centro_lon = float(df_filtrado["LONGITUD"].mean())
     zoom_inicial = 14
 
-m = folium.Map(location=[centro_lat, centro_lon], zoom_start=zoom_inicial, tiles="OpenStreetMap")
+# Crear mapa base
+m = folium.Map(location=[centro_lat, centro_lon], zoom_start=zoom_inicial, tiles="CartoDB positron")
 
-# Dibujar las áreas de los barrios
+# Agregar polígonos de barrios si están disponibles
 try:
     folium.GeoJson(
-        gdf_barrios,
+        gdf_barrios.to_json(),
         name="Barrios",
         style_function=lambda x: {
             "fillColor": "#3388ff",
@@ -96,7 +96,7 @@ try:
 except Exception:
     pass
 
-# Dibujar los puntos de las escuelas
+# Agregar puntos de escuelas
 for _, row in df_filtrado.iterrows():
     color_punto = "blue"
     if row["N. SECUNDARIO"] == 1:
@@ -107,18 +107,19 @@ for _, row in df_filtrado.iterrows():
         color_punto = "orange"
 
     folium.CircleMarker(
-        location=[row["LATITUD"], row["LONGITUD"]],
+        location=[float(row["LATITUD"]), float(row["LONGITUD"])],
         radius=5,
         color=color_punto,
         fill=True,
         fill_color=color_punto,
-        fill_opacity=0.8,
-        popup=f"{row['fna']} - {row['BARRIOS_CORREGIDO']}",
+        fill_opacity=0.85,
+        popup=f"{row['fna']} ({row['BARRIOS_CORREGIDO']})",
         tooltip=str(row["fna"])
     ).add_to(m)
 
-# Renderizar el mapa de forma 100% compatible
-components.html(m._repr_html_(), height=550)
-# Coordenadas de Corrientes Capital
-centro_lat, centro_lon = -27.4692, -58.8306
-zoom_inicial = 12
+# Guardar en archivo temporal y renderizar el contenido completo
+m.save("mapa_temp.html")
+with open("mapa_temp.html", "r", encoding="utf-8") as f:
+    mapa_html = f.read()
+
+components.html(mapa_html, height=560, scrolling=False)

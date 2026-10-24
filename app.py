@@ -38,10 +38,12 @@ def cargar_datos():
     else:
         df_esc["Modalidad_Display"] = "Común"
 
-    # Cargar polígonos de barrios
+    # Cargar polígonos de barrios y reproyectar a Lat/Lon (WGS84)
     gdf_barrios = gpd.read_file("barriosmunicipalidad.shp")
-    if gdf_barrios.crs is None or gdf_barrios.crs != "EPSG:4326":
-        gdf_barrios = gdf_barrios.set_crs(epsg=4326, allow_override=True)
+    if gdf_barrios.crs is not None and gdf_barrios.crs != "EPSG:4326":
+        gdf_barrios = gdf_barrios.to_crs(epsg=4326)
+    elif gdf_barrios.crs is None:
+        gdf_barrios = gdf_barrios.set_crs(epsg=22185).to_crs(epsg=4326)
         
     # Demanda censal INDEC (Capital)
     n_maternal = int(df_esc["N. ED. TERMPRANA"].sum()) if "N. ED. TERMPRANA" in df_esc.columns else 32
@@ -158,6 +160,7 @@ with col_mapa:
         fig_mapa = px.scatter_mapbox(**kwargs_mapa, mapbox_style="open-street-map")
 
     # Agregar polígonos si la casilla está marcada
+    # Agregar polígonos si la casilla está marcada
     if ver_barrios:
         try:
             geojson_barrios = json.loads(gdf_barrios.to_json())
@@ -166,24 +169,24 @@ with col_mapa:
                     "sourcetype": "geojson",
                     "source": geojson_barrios,
                     "type": "fill",
-                    "color": "rgba(41, 128, 185, 0.12)",
+                    "color": "rgba(41, 128, 185, 0.25)",
                     "below": "traces"
                 },
                 {
                     "sourcetype": "geojson",
                     "source": geojson_barrios,
                     "type": "line",
-                    "color": "#1F618D",
-                    "line": {"width": 1.4}
+                    "color": "#0E6251",
+                    "line": {"width": 2.0}
                 }
             ]
-            if hasattr(px, "scatter_map"):
-                fig_mapa.update_layout(map_layers=capas_barrio)
-            else:
-                fig_mapa.update_layout(mapbox_layers=capas_barrio)
+            fig_mapa.update_layout(
+                mapbox_layers=capas_barrio,
+                map_layers=capas_barrio
+            )
         except Exception:
             pass
-
+            
     fig_mapa.update_layout(
         margin=dict(l=0, r=0, t=10, b=10),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0)

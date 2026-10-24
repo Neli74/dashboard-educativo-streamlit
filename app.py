@@ -68,6 +68,7 @@ def cargar_datos():
     return df_esc, gdf_barrios, df_demanda
 
 df_escuelas, gdf_barrios, df_demanda = cargar_datos()
+st.write("Columnas en el Excel:", list(df_escuelas.columns))
 
 # 2. Barra lateral de filtros
 st.sidebar.title("Filtros del Tablero")

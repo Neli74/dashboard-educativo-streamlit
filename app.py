@@ -132,7 +132,7 @@ with col_mapa:
     campo_color = "Nivel_Oferta" if criterio_color == "Nivel Educativo" else "Modalidad_Display"
 
     # Crear mapa base con puntos o coordenadas neutras
-    if ver_escuelas and not df_filtrado.empty:
+   if ver_escuelas and not df_filtrado.empty:
         kwargs_mapa = {
             "data_frame": df_filtrado,
             "lat": "LATITUD",
@@ -141,10 +141,12 @@ with col_mapa:
             "color_discrete_sequence": paleta_colores,
             "hover_name": "fna",
             "hover_data": {"BARRIOS_CORREGIDO": True, "cue": True, "LATITUD": False, "LONGITUD": False, campo_color: False},
+            "labels": {"BARRIOS_CORREGIDO": "Barrio", "cue": "CUE"},
             "zoom": zoom_val,
             "center": {"lat": centro_lat, "lon": centro_lon},
             "height": 470
         }
+       
     else:
         df_vacio = pd.DataFrame({"LATITUD": [centro_lat], "LONGITUD": [centro_lon]})
         kwargs_mapa = {

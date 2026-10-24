@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
 import geopandas as gpd
-import json
 import plotly.express as px
+import plotly.graph_objects as go
 
 st.set_page_config(page_title="Tablero Educativo Corrientes - INDEC vs Oferta", layout="wide")
 
@@ -11,7 +11,7 @@ st.set_page_config(page_title="Tablero Educativo Corrientes - INDEC vs Oferta", 
 def cargar_datos():
     df_esc = pd.read_excel("ESCUELAS_DEFINITIVA.xlsx")
     
-    # Asignar Nivel Educativo representativo
+    # Clasificación por nivel educativo
     def clasificar_nivel(row):
         if row.get("N. SECUNDARIO") == 1:
             return "Secundaria"
@@ -27,7 +27,7 @@ def cargar_datos():
     
     df_esc["Nivel_Oferta"] = df_esc.apply(clasificar_nivel, axis=1)
 
-    # Identificar columna de Modalidad si existe en la base
+    # Identificación de modalidad
     col_mod = None
     for c in ["MODALIDAD", "modalidad", "Modalidad", "MODALIDAD_NORMALIZADA"]:
         if c in df_esc.columns:
@@ -38,14 +38,20 @@ def cargar_datos():
     else:
         df_esc["Modalidad_Display"] = "Común"
 
-    # Cargar polígonos de barrios y reproyectar a Lat/Lon (WGS84)
+    # Cargar barrios y asegurar coordenadas en grados (WGS84)
     gdf_barrios = gpd.read_file("barriosmunicipalidad.shp")
-    if gdf_barrios.crs is not None and gdf_barrios.crs != "EPSG:4326":
-        gdf_barrios = gdf_barrios.to_crs(epsg=4326)
-    elif gdf_barrios.crs is None:
-        gdf_barrios = gdf_barrios.set_crs(epsg=22185).to_crs(epsg=4326)
+    bounds = gdf_barrios.total_bounds
+    # Si las coordenadas están en metros (fuera del rango -180 a 180), reproyectar
+    if bounds[0] < -180 or bounds[0] > 180 or bounds[2] < -180 or bounds[2] > 180:
+        if gdf_barrios.crs is not None:
+            gdf_barrios = gdf_barrios.to_crs(epsg=4326)
+        else:
+            gdf_barrios = gdf_barrios.set_crs(epsg=22185).to_crs(epsg=4326)
+    else:
+        if gdf_barrios.crs is None or gdf_barrios.crs != "EPSG:4326":
+            gdf_barrios = gdf_barrios.set_crs(epsg=4326, allow_override=True)
         
-    # Demanda censal INDEC (Capital)
+    # Demanda INDEC vs Oferta
     n_maternal = int(df_esc["N. ED. TERMPRANA"].sum()) if "N. ED. TERMPRANA" in df_esc.columns else 32
     n_inicial = int(df_esc["N.INICIAL"].sum()) if "N.INICIAL" in df_esc.columns else 136
     n_primario = int(df_esc["N. PRIMARIO"].sum()) if "N. PRIMARIO" in df_esc.columns else 136
@@ -64,7 +70,7 @@ def cargar_datos():
 
 df_escuelas, gdf_barrios, df_demanda = cargar_datos()
 
-# 2. Barra lateral: Filtros principales
+# 2. Barra lateral de filtros
 st.sidebar.title("Filtros del Tablero")
 
 barrios_lista = ["Todos los barrios"] + sorted([b for b in df_escuelas["BARRIOS_CORREGIDO"].dropna().unique()])
@@ -94,13 +100,12 @@ k4.metric("Barrio con mayor oferta", f"{top_b} ({top_c})")
 
 st.markdown("---")
 
-# 4. Sección de Mapa y Gráficos (Estilo interactivo con capas)
+# 4. Sección de Mapa y Gráficos
 col_mapa, col_grafico = st.columns([1.1, 0.9])
 
 with col_mapa:
     st.subheader("Distribución Territorial de Escuelas")
     
-    # Controles de capas del mapa
     c_capas1, c_capas2, c_capas3 = st.columns(3)
     ver_barrios = c_capas1.checkbox("Ver Polígonos de Barrios", value=True)
     ver_escuelas = c_capas2.checkbox("Ver Establecimientos", value=True)
@@ -113,21 +118,20 @@ with col_mapa:
         centro_lon = float(df_filtrado["LONGITUD"].mean())
         zoom_val = 13.5
 
-    # Paleta cromática contrastante y legible
     paleta_colores = [
         "#E74C3C",  # Rojo / Secundaria
-        "#2ECC71",  # Verde esmeralda / Primaria
-        "#F39C12",  # Naranja ámbar / Inicial
-        "#8E44AD",  # Violeta / Superior
-        "#1ABC9C",  # Turquesa / Temprana
-        "#3498DB",  # Azul eléctrico / Técnica
-        "#E67E22",  # Cobre / Especial
-        "#95A5A6"   # Gris plata
+        "#2ECC71",  # Verde / Primaria
+        "#F39C12",  # Naranja / Inicial
+        "#8E44AD",  # Violeta / Temprana
+        "#1ABC9C",  # Turquesa
+        "#3498DB",  # Azul
+        "#E67E22",  # Cobre
+        "#95A5A6"   # Gris
     ]
 
     campo_color = "Nivel_Oferta" if criterio_color == "Nivel Educativo" else "Modalidad_Display"
 
-    # Construcción del mapa
+    # Crear mapa base con puntos o coordenadas neutras
     if ver_escuelas and not df_filtrado.empty:
         kwargs_mapa = {
             "data_frame": df_filtrado,
@@ -142,7 +146,6 @@ with col_mapa:
             "height": 470
         }
     else:
-        # Mapa base neutro si se ocultan las escuelas
         df_vacio = pd.DataFrame({"LATITUD": [centro_lat], "LONGITUD": [centro_lon]})
         kwargs_mapa = {
             "data_frame": df_vacio,
@@ -159,34 +162,43 @@ with col_mapa:
     else:
         fig_mapa = px.scatter_mapbox(**kwargs_mapa, mapbox_style="open-street-map")
 
-    # Agregar polígonos si la casilla está marcada
-    # Agregar polígonos si la casilla está marcada
+    # Trazar los límites de los barrios con líneas vectoriales de alta precisión
     if ver_barrios:
-        try:
-            geojson_barrios = json.loads(gdf_barrios.to_json())
-            capas_barrio = [
-                {
-                    "sourcetype": "geojson",
-                    "source": geojson_barrios,
-                    "type": "fill",
-                    "color": "rgba(41, 128, 185, 0.25)",
-                    "below": "traces"
-                },
-                {
-                    "sourcetype": "geojson",
-                    "source": geojson_barrios,
-                    "type": "line",
-                    "color": "#0E6251",
-                    "line": {"width": 2.0}
-                }
-            ]
-            fig_mapa.update_layout(
-                mapbox_layers=capas_barrio,
-                map_layers=capas_barrio
+        lats_barrios = []
+        lons_barrios = []
+        for geom in gdf_barrios.geometry:
+            if geom is None:
+                continue
+            if geom.geom_type == "Polygon":
+                x, y = geom.exterior.xy
+                lons_barrios.extend(x.tolist() + [None])
+                lats_barrios.extend(y.tolist() + [None])
+            elif geom.geom_type == "MultiPolygon":
+                for poly in geom.geoms:
+                    x, y = poly.exterior.xy
+                    lons_barrios.extend(x.tolist() + [None])
+                    lats_barrios.extend(y.tolist() + [None])
+
+        if hasattr(go, "Scattermap"):
+            traza_limites = go.Scattermap(
+                lat=lats_barrios,
+                lon=lons_barrios,
+                mode="lines",
+                line=dict(width=2, color="#0E6251"),
+                name="Límites Barrios",
+                hoverinfo="none"
             )
-        except Exception:
-            pass
-            
+        else:
+            traza_limites = go.Scattermapbox(
+                lat=lats_barrios,
+                lon=lons_barrios,
+                mode="lines",
+                line=dict(width=2, color="#0E6251"),
+                name="Límites Barrios",
+                hoverinfo="none"
+            )
+        fig_mapa.add_trace(traza_limites)
+
     fig_mapa.update_layout(
         margin=dict(l=0, r=0, t=10, b=10),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0)
@@ -204,7 +216,7 @@ with col_grafico:
         x="Cantidad_Escuelas",
         y="Barrio",
         orientation="h",
-        color_discrete_sequence=["#27AE60"]  # Verde oscuro estilizado
+        color_discrete_sequence=["#27AE60"]
     )
     fig_barras.update_layout(
         yaxis=dict(autorange="reversed"),
@@ -217,7 +229,7 @@ with col_grafico:
 
 st.markdown("---")
 
-# 5. Fila Inferior: Demanda INDEC vs Capacidad y Dona por Categoría
+# 5. Fila Inferior: Demanda INDEC vs Oferta y Proporción por Nivel
 col_tabla, col_dona = st.columns([1.2, 0.8])
 
 with col_tabla:

@@ -68,17 +68,24 @@ df_escuelas, gdf_barrios, df_demanda = cargar_datos()
 # 2. Barra lateral de filtros
 st.sidebar.title("Filtros del Tablero")
 
-barrios_lista = ["Todos los barrios"] + sorted([b for b in df_escuelas["BARRIOS_CORREGIDO"].dropna().unique()])
-barrio_sel = st.sidebar.selectbox("Seleccionar Barrio:", barrios_lista)
+barrios_disponibles = sorted([b for b in df_escuelas["BARRIOS_CORREGIDO"].dropna().unique()])
+barrios_sel = st.sidebar.multiselect(
+    "Seleccionar Barrio(s):",
+    options=barrios_disponibles,
+    placeholder="Todos los barrios (o elegí uno o más)"
+)
 
 niveles_cols = ["N. ED. TERMPRANA", "N.INICIAL", "N. PRIMARIO", "N. SECUNDARIO", "N. SUPERIOR"]
 niveles_presentes = [c for c in niveles_cols if c in df_escuelas.columns]
 niveles_sel = st.sidebar.multiselect("Filtrar por Niveles:", niveles_presentes, default=niveles_presentes[:4])
 
 df_filtrado = df_escuelas.copy()
-if barrio_sel != "Todos los barrios":
-    df_filtrado = df_filtrado[df_filtrado["BARRIOS_CORREGIDO"] == barrio_sel]
 
+# Filtro multi-barrio
+if barrios_sel:
+    df_filtrado = df_filtrado[df_filtrado["BARRIOS_CORREGIDO"].isin(barrios_sel)]
+
+# Filtro por niveles
 if niveles_sel:
     df_filtrado = df_filtrado[df_filtrado[niveles_sel].sum(axis=1) > 0]
 
@@ -89,9 +96,12 @@ k1, k2, k3, k4 = st.columns(4)
 k1.metric("Establecimientos Filtrados", len(df_filtrado))
 k2.metric("Población Escolarizada", "161.863")
 k3.metric("Mayor Demanda", "Secundaria (50.204)")
-top_b = df_escuelas["BARRIOS_CORREGIDO"].value_counts().index[0]
-top_c = df_escuelas["BARRIOS_CORREGIDO"].value_counts().iloc[0]
-k4.metric("Barrio con mayor oferta", f"{top_b} ({top_c})")
+if not df_filtrado.empty:
+    top_b = df_filtrado["BARRIOS_CORREGIDO"].value_counts().index[0]
+    top_c = df_filtrado["BARRIOS_CORREGIDO"].value_counts().iloc[0]
+    k4.metric("Mayor concentración", f"{top_b} ({top_c})")
+else:
+    k4.metric("Mayor concentración", "Sin datos")
 
 st.markdown("---")
 
@@ -108,10 +118,10 @@ with col_mapa:
 
     centro_lat, centro_lon = -27.4692, -58.8306
     zoom_val = 11.5
-    if barrio_sel != "Todos los barrios" and not df_filtrado.empty:
+    if barrios_sel and not df_filtrado.empty:
         centro_lat = float(df_filtrado["LATITUD"].mean())
         centro_lon = float(df_filtrado["LONGITUD"].mean())
-        zoom_val = 13.5
+        zoom_val = 12.8 if len(barrios_sel) > 1 else 13.5
 
     paleta_colores = [
         "#E74C3C",  # Rojo / Secundaria
@@ -267,7 +277,15 @@ with col_tabla:
     )
 
 with col_dona:
-    st.subheader(f"Proporción según {criterio_color}")
+    # Título adaptado a la selección
+    if len(barrios_sel) == 1:
+        titulo_dona = f"Proporción ({criterio_color}) - {barrios_sel[0]}"
+    elif len(barrios_sel) > 1:
+        titulo_dona = f"Proporción ({criterio_color}) - {len(barrios_sel)} Barrios seleccionados"
+    else:
+        titulo_dona = f"Proporción ({criterio_color}) - Toda la Capital"
+
+    st.subheader(titulo_dona)
     dist = df_filtrado[campo_color].value_counts().reset_index()
     dist.columns = ["Categoria", "Cantidad"]
     

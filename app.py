@@ -4,6 +4,7 @@ import geopandas as gpd
 import folium
 from streamlit_folium import st_folium
 import plotly.express as px
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Dashboard Educativo Corrientes", layout="wide")
 
@@ -116,8 +117,8 @@ for _, row in df_filtrado.iterrows():
         tooltip=str(row["fna"])
     ).add_to(m)
 
-# Renderizar el mapa de forma fluida
-st_folium(m, use_container_width=True, height=520, returned_objects=[])
+# Renderizar el mapa de forma 100% compatible
+components.html(m._repr_html_(), height=550)
 # Coordenadas de Corrientes Capital
 centro_lat, centro_lon = -27.4692, -58.8306
 zoom_inicial = 12

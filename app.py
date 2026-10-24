@@ -4,25 +4,25 @@ import geopandas as gpd
 import json
 import plotly.express as px
 
-st.set_page_config(page_title="Dashboard Educativo Corrientes", layout="wide")
+st.set_page_config(page_title="Tablero Educativo Corrientes - INDEC vs Oferta", layout="wide")
 
-# 1. Carga y preparación de datos
+# 1. Carga y preparación de bases de datos
 @st.cache_data
 def cargar_datos():
     # Cargar escuelas
     df_esc = pd.read_excel("ESCUELAS_DEFINITIVA.xlsx")
     
-    # Asignar nivel para colorear puntos
+    # Asignar nivel principal para visualización
     def definir_nivel(row):
         if row.get("N. SECUNDARIO") == 1:
-            return "Secundario"
+            return "Secundaria"
         elif row.get("N. PRIMARIO") == 1:
-            return "Primario"
+            return "Primaria"
         elif row.get("N.INICIAL") == 1:
             return "Inicial"
         elif row.get("N. SUPERIOR") == 1:
             return "Superior"
-        return "Otro"
+        return "Otro / Especial"
     
     df_esc["Nivel_Oferta"] = df_esc.apply(definir_nivel, axis=1)
     
@@ -31,97 +31,104 @@ def cargar_datos():
     if gdf_barrios.crs is None or gdf_barrios.crs != "EPSG:4326":
         gdf_barrios = gdf_barrios.set_crs(epsg=4326, allow_override=True)
         
-    # Totales INDEC (Censo 2022 Capital)
+    # Demanda INDEC (Censo Capital) vs Oferta real
+    n_maternal = int(df_esc["N. ED. TERMPRANA"].sum()) if "N. ED. TERMPRANA" in df_esc.columns else 32
+    n_inicial = int(df_esc["N.INICIAL"].sum()) if "N.INICIAL" in df_esc.columns else 136
+    n_primario = int(df_esc["N. PRIMARIO"].sum()) if "N. PRIMARIO" in df_esc.columns else 136
+    n_secundario = int(df_esc["N. SECUNDARIO"].sum()) if "N. SECUNDARIO" in df_esc.columns else 98
+    n_superior = int(df_esc["N. SUPERIOR"].sum()) if "N. SUPERIOR" in df_esc.columns else 24
+
     demanda = {
-        "Nivel": ["Maternal / 0 a 3", "Inicial (4 y 5)", "Primario", "Secundario", "Superior"],
+        "Nivel": ["Materna / CDI (0 a 3)", "Inicial (Salas 4 y 5)", "Primaria", "Secundaria", "Superior"],
         "Alumnos_INDEC": [7321, 11116, 46040, 50204, 16331],
-        "Escuelas": [
-            int(df_esc["N. ED. TERMPRANA"].sum()),
-            int(df_esc["N.INICIAL"].sum()),
-            int(df_esc["N. PRIMARIO"].sum()),
-            int(df_esc["N. SECUNDARIO"].sum()),
-            int(df_esc["N. SUPERIOR"].sum())
-        ]
+        "Escuelas": [n_maternal, n_inicial, n_primario, n_secundario, n_superior]
     }
     df_demanda = pd.DataFrame(demanda)
-    df_demanda["Ratio_Alumnos_x_Escuela"] = (df_demanda["Alumnos_INDEC"] / df_demanda["Escuelas"]).round(1)
+    df_demanda["Ratio_Alumnos_x_Escuela"] = (df_demanda["Alumnos_INDEC"] / df_demanda["Escuelas"]).round(0).astype(int)
     
     return df_esc, gdf_barrios, df_demanda
 
 df_escuelas, gdf_barrios, df_demanda = cargar_datos()
 
-# 2. Barra lateral con filtros
-st.sidebar.title("Filtros del Mapa")
+# 2. Barra lateral de filtros interactivos
+st.sidebar.title("Filtros Interactivos")
 
-lista_barrios = ["Todos los barrios"] + sorted([b for b in df_escuelas["BARRIOS_CORREGIDO"].dropna().unique()])
-barrio_sel = st.sidebar.selectbox("Seleccionar Barrio:", lista_barrios)
+barrios_disponibles = ["Todos los barrios"] + sorted([b for b in df_escuelas["BARRIOS_CORREGIDO"].dropna().unique()])
+barrio_sel = st.sidebar.selectbox("Filtrar por Barrio:", barrios_disponibles)
 
-niveles_disponibles = ["N.INICIAL", "N. PRIMARIO", "N. SECUNDARIO", "N. SUPERIOR", "N. ED. TERMPRANA"]
-nivel_sel = st.sidebar.multiselect("Niveles Educativos a mostrar:", niveles_disponibles, default=["N.INICIAL", "N. PRIMARIO", "N. SECUNDARIO"])
+niveles_check = ["N.INICIAL", "N. PRIMARIO", "N. SECUNDARIO", "N. SUPERIOR"]
+niveles_sel = st.sidebar.multiselect("Nivel de Enseñanza:", niveles_check, default=["N.INICIAL", "N. PRIMARIO", "N. SECUNDARIO"])
 
-# Filtrado reactivo
+# Filtrado dinámico
 df_filtrado = df_escuelas.copy()
 if barrio_sel != "Todos los barrios":
     df_filtrado = df_filtrado[df_filtrado["BARRIOS_CORREGIDO"] == barrio_sel]
 
-if nivel_sel:
-    condicion = df_filtrado[nivel_sel].sum(axis=1) > 0
-    df_filtrado = df_filtrado[condicion]
+if niveles_sel:
+    df_filtrado = df_filtrado[df_filtrado[niveles_sel].sum(axis=1) > 0]
 
-# 3. Encabezado principal y Métricas (KPIs)
-st.title("Mapa y Análisis Educativo: Corrientes Capital")
-st.markdown("Visualización integrada de oferta escolar, delimitación de barrios y demanda censal (INDEC).")
+# 3. Título principal y Métricas (KPIs)
+st.title("Tablero Educativo Corrientes - INDEC vs Oferta")
 
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Establecimientos Filtrados", len(df_filtrado))
-col2.metric("Población Escolarizada", "161.863")
-col3.metric("Mayor Demanda", "Secundaria (50.204)")
-col4.metric("Barrio con más oferta", "B° Pirayuí (29)")
+kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+kpi1.metric("Establecimientos (Filtro)", len(df_filtrado))
+kpi2.metric("Población Escolarizada", "161.863")
+kpi3.metric("Mayor Demanda INDEC", "Secundaria (50.204)")
+top_nombre = df_escuelas["BARRIOS_CORREGIDO"].value_counts().index[0]
+top_cant = df_escuelas["BARRIOS_CORREGIDO"].value_counts().iloc[0]
+kpi4.metric("Barrio con mayor oferta", f"{top_nombre} ({top_cant})")
 
-st.divider()
+st.markdown("---")
 
-# 4. Sección de Mapa Interactivo con Plotly
-st.subheader("Mapa Territorial: Polígonos de Barrios y Establecimientos")
+# 4. Fila Superior: Distribución en Mapa y Gráficos por Barrio (Estilo Grafana)
+col_mapa, col_grafico = st.columns([1.1, 0.9])
 
-centro_lat, centro_lon = -27.4692, -58.8306
-zoom_inicial = 11.5
+with col_mapa:
+    st.subheader("Distribución de Escuelas (Ctes Cap).")
+    
+    centro_lat, centro_lon = -27.4692, -58.8306
+    zoom_val = 11.5
+    if barrio_sel != "Todos los barrios" and not df_filtrado.empty:
+        centro_lat = float(df_filtrado["LATITUD"].mean())
+        centro_lon = float(df_filtrado["LONGITUD"].mean())
+        zoom_val = 13.5
 
-if barrio_sel != "Todos los barrios" and not df_filtrado.empty:
-    centro_lat = float(df_filtrado["LATITUD"].mean())
-    centro_lon = float(df_filtrado["LONGITUD"].mean())
-    zoom_inicial = 13.5
+    colores_mapa = {
+        "Secundaria": "#EF553B",
+        "Primaria": "#2ECC71",
+        "Inicial": "#F39C12",
+        "Superior": "#9B59B6",
+        "Otro / Especial": "#3498DB"
+    }
 
-# Mapa base con puntos de escuelas
-fig_mapa = px.scatter_mapbox(
-    df_filtrado,
-    lat="LATITUD",
-    lon="LONGITUD",
-    color="Nivel_Oferta",
-    color_discrete_map={
-        "Secundario": "#EF553B",
-        "Primario": "#00CC96",
-        "Inicial": "#FFA15A",
-        "Superior": "#AB63FA",
-        "Otro": "#636EFA"
-    },
-    hover_name="fna",
-    hover_data={"BARRIOS_CORREGIDO": True, "cue": True, "LATITUD": False, "LONGITUD": False, "Nivel_Oferta": False},
-    zoom=zoom_inicial,
-    center={"lat": centro_lat, "lon": centro_lon},
-    mapbox_style="open-street-map",
-    height=580
-)
+    # Compatibilidad universal Plotly (v5 y v6+)
+    kwargs_mapa = {
+        "data_frame": df_filtrado,
+        "lat": "LATITUD",
+        "lon": "LONGITUD",
+        "color": "Nivel_Oferta",
+        "color_discrete_map": colores_mapa,
+        "hover_name": "fna",
+        "hover_data": {"BARRIOS_CORREGIDO": True, "cue": True, "LATITUD": False, "LONGITUD": False, "Nivel_Oferta": False},
+        "zoom": zoom_val,
+        "center": {"lat": centro_lat, "lon": centro_lon},
+        "height": 450
+    }
 
-# Incorporar las capas de polígonos de los barrios
-try:
-    geojson_barrios = json.loads(gdf_barrios.to_json())
-    fig_mapa.update_layout(
-        mapbox_layers=[
+    if hasattr(px, "scatter_map"):
+        fig_mapa = px.scatter_map(**kwargs_mapa, map_style="open-street-map")
+    else:
+        fig_mapa = px.scatter_mapbox(**kwargs_mapa, mapbox_style="open-street-map")
+
+    # Polígonos de delimitación de barrios
+    try:
+        geojson_barrios = json.loads(gdf_barrios.to_json())
+        capas_barrio = [
             {
                 "sourcetype": "geojson",
                 "source": geojson_barrios,
                 "type": "fill",
-                "color": "rgba(41, 128, 185, 0.15)",
+                "color": "rgba(52, 152, 219, 0.12)",
                 "below": "traces"
             },
             {
@@ -132,26 +139,69 @@ try:
                 "line": {"width": 1.2}
             }
         ]
+        if hasattr(px, "scatter_map"):
+            fig_mapa.update_layout(map_layers=capas_barrio)
+        else:
+            fig_mapa.update_layout(mapbox_layers=capas_barrio)
+    except Exception:
+        pass
+
+    fig_mapa.update_layout(margin=dict(l=0, r=0, t=10, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+    st.plotly_chart(fig_mapa, use_container_width=True)
+
+with col_grafico:
+    st.subheader("Distribución de Escuelas por Barrio (Capital).")
+    
+    top_barrios = df_filtrado["BARRIOS_CORREGIDO"].value_counts().head(14).reset_index()
+    top_barrios.columns = ["Barrio", "Cantidad_Escuelas"]
+    
+    fig_barras = px.bar(
+        top_barrios,
+        x="Cantidad_Escuelas",
+        y="Barrio",
+        orientation="h",
+        color_discrete_sequence=["#5cb85c"]  # Tono verde característico de tu panel en Grafana
     )
-except Exception:
-    pass
+    fig_barras.update_layout(
+        yaxis=dict(autorange="reversed"),
+        margin=dict(l=0, r=10, t=10, b=10),
+        xaxis_title="Cantidad de Escuelas",
+        yaxis_title="",
+        height=450
+    )
+    st.plotly_chart(fig_barras, use_container_width=True)
 
-fig_mapa.update_layout(margin=dict(l=0, r=0, t=10, b=10), legend_title_text="Nivel Educativo")
-st.plotly_chart(fig_mapa, use_container_width=True)
+st.markdown("---")
 
-st.divider()
+# 5. Fila Inferior: Tabla INDEC vs Oferta y Gráfico de Torta por Niveles
+col_tabla, col_dona = st.columns([1.2, 0.8])
 
-# 5. Sección de Tablas y Ratios
-col_izq, col_der = st.columns([1, 1])
+with col_tabla:
+    st.subheader("Demanda INDEC vs Oferta de Establecimientos (Capital)")
+    st.dataframe(
+        df_demanda,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Nivel": "Nivel Educativo",
+            "Alumnos_INDEC": st.column_config.NumberColumn("Alumnos INDEC (Demanda)", format="%d"),
+            "Escuelas": st.column_config.NumberColumn("Establecimientos", format="%d"),
+            "Ratio_Alumnos_x_Escuela": st.column_config.NumberColumn("Ratio Alumnos / Escuela", format="%d")
+        }
+    )
 
-with col_izq:
-    st.subheader("Demanda INDEC vs Capacidad Edilicia")
-    st.dataframe(df_demanda, use_container_width=True)
-
-with col_der:
-    st.subheader("Top 10 Barrios con más Escuelas")
-    top_barrios = df_escuelas["BARRIOS_CORREGIDO"].value_counts().head(10).reset_index()
-    top_barrios.columns = ["Barrio", "Cantidad"]
-    fig = px.bar(top_barrios, x="Cantidad", y="Barrio", orientation="h", color="Cantidad", color_continuous_scale="Blues")
-    fig.update_layout(yaxis=dict(autorange="reversed"), margin=dict(l=0, r=0, t=10, b=10))
-    st.plotly_chart(fig, use_container_width=True)
+with col_dona:
+    st.subheader("Proporción por Nivel de Oferta")
+    dist_niveles = df_filtrado["Nivel_Oferta"].value_counts().reset_index()
+    dist_niveles.columns = ["Nivel", "Cantidad"]
+    
+    fig_dona = px.pie(
+        dist_niveles,
+        names="Nivel",
+        values="Cantidad",
+        hole=0.45,
+        color="Nivel",
+        color_discrete_map=colores_mapa
+    )
+    fig_dona.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=260)
+    st.plotly_chart(fig_dona, use_container_width=True)

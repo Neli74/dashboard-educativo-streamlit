@@ -80,4 +80,4 @@ def cargar_datos():
     conteo_escuelas = cruce_espacial.groupby("NOMBRE_BARRIO_SHP")["index_right"].count().reset_index()
     conteo_escuelas.columns = ["NOMBRE_BARRIO_SHP", "CANT_ESCUELAS"]
     
-    gdf_barrios_final = gdf_barrios_unificados.merge(conteo_escuelas, on="NOMBRE_BARRIO_
+    gdf_barrios_final = gdf_barrios_unificados.merge(conteo_escuelas, on="NOMBRE_BARRIO_SHP", how="left")

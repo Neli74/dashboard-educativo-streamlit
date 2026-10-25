@@ -59,7 +59,7 @@ def cargar_datos():
         if gdf_barrios.crs is None or gdf_barrios.crs != "EPSG:4326":
             gdf_barrios = gdf_barrios.set_crs(epsg=4326, allow_override=True)
         
-    # Selección de columna con nombres de texto
+    # Selección de columna con nombres de texto reales
     cols_sin_geometria = [c for c in gdf_barrios.columns if c != "geometry"]
     col_nombre_shp = None
 
@@ -109,9 +109,9 @@ def cargar_datos():
     df_demanda = pd.DataFrame(demanda)
     df_demanda["Ratio_Alumnos_x_Escuela"] = (df_demanda["Alumnos_INDEC"] / df_demanda["Escuelas"]).round(0).astype(int)
     
-    return df_esc, gdf_barrios, gdf_barrios_sin_escuelas, total_barrios_sin_oferta, nombres_sin_oferta, df_demanda, cols_sin_geometria, col_nombre_shp
+    return df_esc, gdf_barrios, gdf_barrios_sin_escuelas, total_barrios_sin_oferta, df_demanda
 
-df_escuelas, gdf_barrios, gdf_barrios_sin_escuelas, total_sin_oferta, lista_sin_oferta, df_demanda, cols_disponibles, col_usada = cargar_datos()
+df_escuelas, gdf_barrios, gdf_barrios_sin_escuelas, total_sin_oferta, df_demanda = cargar_datos()
 
 # 2. Barra lateral de filtros
 st.sidebar.title("Filtros del Tablero")
@@ -156,10 +156,6 @@ modalidades_sel = st.sidebar.multiselect(
     options=modalidades_presentes,
     default=modalidades_presentes
 )
-
-st.sidebar.markdown("---")
-st.sidebar.caption(f"📍 **Columna de barrios leída:** `{col_usada}`")
-st.sidebar.caption(f"📁 **Columnas detectadas:** {', '.join(cols_disponibles)}")
 
 # Aplicación de filtros
 df_filtrado = df_escuelas.copy()
@@ -282,7 +278,7 @@ with col_mapa:
             )
         )
 
-    # 2. Polígonos con detección de cursor activa (relleno interactivo)
+    # 2. Polígonos con hover interactivo instantáneo sobre el relleno
     if ver_sin_oferta and not gdf_barrios_sin_escuelas.empty and traza_cls:
         primera_traza = True
         for _, fila in gdf_barrios_sin_escuelas.iterrows():
@@ -294,21 +290,37 @@ with col_mapa:
             poligonos = [geom] if geom.geom_type == "Polygon" else list(geom.geoms)
             for poly in poligonos:
                 x, y = poly.exterior.xy
+                # Polígono relleno con hover directo en cualquier parte del cuerpo
                 fig_mapa.add_trace(
                     traza_cls(
                         lat=list(y),
                         lon=list(x),
                         mode="lines",
                         fill="toself",
-                        fillcolor="rgba(231, 76, 60, 0.25)",
-                        line=dict(width=2, color="#E74C3C"),
+                        fillcolor="rgba(231, 76, 60, 0.35)",
+                        line=dict(width=2, color="#C0392B"),
                         name="Sin Oferta Escolar" if primera_traza else None,
                         showlegend=primera_traza,
                         hoverinfo="text",
+                        hoveron="points+fills",
                         text=f"⚠️ <b>Barrio sin oferta escolar:</b><br>{nom}"
                     )
                 )
                 primera_traza = False
+
+        # Capa invisible de centroides para garantizar activación al cruzar el mouse
+        centroides = gdf_barrios_sin_escuelas.geometry.centroid
+        fig_mapa.add_trace(
+            traza_cls(
+                lat=centroides.y,
+                lon=centroides.x,
+                mode="markers",
+                marker=dict(size=14, color="#C0392B", opacity=0.01),
+                text=[f"⚠️ <b>Barrio sin oferta escolar:</b><br>{n}" for n in gdf_barrios_sin_escuelas["NOMBRE_BARRIO_SHP"]],
+                hoverinfo="text",
+                showlegend=False
+            )
+        )
 
     fig_mapa.update_layout(
         margin=dict(l=0, r=0, t=10, b=10),
@@ -332,10 +344,6 @@ with col_mapa:
                 f"🏘️ **Barrio:** {escuela_tocada['BARRIOS_CORREGIDO']}  \n"
                 f"📋 **CUE:** {escuela_tocada['cue']} | **Nivel:** {escuela_tocada['Nivel_Oferta']} | **Modalidad:** {escuela_tocada['Modalidad_Display']}"
             )
-
-    if lista_sin_oferta:
-        with st.expander(f"⚠️ Ver lista detallada de barrios sin oferta escolar ({total_sin_oferta})"):
-            st.write(", ".join(lista_sin_oferta))
 
 with col_grafico:
     st.subheader("Distribución de Escuelas por Barrio (Capital)")

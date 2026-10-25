@@ -157,7 +157,7 @@ modalidades_sel = st.sidebar.multiselect(
     default=modalidades_presentes
 )
 
-# Aplicación de filtros
+# Aplicación progresiva de filtros
 df_filtrado = df_escuelas.copy()
 
 if barrios_sel:
@@ -278,47 +278,46 @@ with col_mapa:
             )
         )
 
-    # 2. Polígonos con hover interactivo instantáneo sobre el relleno
+    # 2. Perímetros en rojo y activación de hover con el nombre del barrio
     if ver_sin_oferta and not gdf_barrios_sin_escuelas.empty and traza_cls:
-        primera_traza = True
-        for _, fila in gdf_barrios_sin_escuelas.iterrows():
-            geom = fila.geometry
-            nom = fila["NOMBRE_BARRIO_SHP"]
+        lats_so, lons_so = [], []
+        for geom in gdf_barrios_sin_escuelas.geometry:
             if geom is None:
                 continue
-            
-            poligonos = [geom] if geom.geom_type == "Polygon" else list(geom.geoms)
-            for poly in poligonos:
-                x, y = poly.exterior.xy
-                # Polígono relleno con hover directo en cualquier parte del cuerpo
-                fig_mapa.add_trace(
-                    traza_cls(
-                        lat=list(y),
-                        lon=list(x),
-                        mode="lines",
-                        fill="toself",
-                        fillcolor="rgba(231, 76, 60, 0.35)",
-                        line=dict(width=2, color="#C0392B"),
-                        name="Sin Oferta Escolar" if primera_traza else None,
-                        showlegend=primera_traza,
-                        hoverinfo="text",
-                        hoveron="points+fills",
-                        text=f"⚠️ <b>Barrio sin oferta escolar:</b><br>{nom}"
-                    )
-                )
-                primera_traza = False
+            if geom.geom_type == "Polygon":
+                x, y = geom.exterior.xy
+                lons_so.extend(x.tolist() + [None])
+                lats_so.extend(y.tolist() + [None])
+            elif geom.geom_type == "MultiPolygon":
+                for poly in geom.geoms:
+                    x, y = poly.exterior.xy
+                    lons_so.extend(x.tolist() + [None])
+                    lats_so.extend(y.tolist() + [None])
 
-        # Capa invisible de centroides para garantizar activación al cruzar el mouse
-        centroides = gdf_barrios_sin_escuelas.geometry.centroid
+        # Líneas perimetrales rojas
         fig_mapa.add_trace(
             traza_cls(
-                lat=centroides.y,
-                lon=centroides.x,
+                lat=lats_so,
+                lon=lons_so,
+                mode="lines",
+                line=dict(width=2.5, color="#E74C3C"),
+                name="Límites Sin Escuelas",
+                hoverinfo="none"
+            )
+        )
+
+        # Círculos interactivos en el centro para desplegar el cartel con el nombre
+        centroides = gdf_barrios_sin_escuelas.geometry.centroid
+        nombres_barrios = list(gdf_barrios_sin_escuelas["NOMBRE_BARRIO_SHP"])
+        fig_mapa.add_trace(
+            traza_cls(
+                lat=list(centroides.y),
+                lon=list(centroides.x),
                 mode="markers",
-                marker=dict(size=14, color="#C0392B", opacity=0.01),
-                text=[f"⚠️ <b>Barrio sin oferta escolar:</b><br>{n}" for n in gdf_barrios_sin_escuelas["NOMBRE_BARRIO_SHP"]],
+                marker=dict(size=24, color="rgba(231, 76, 60, 0.45)"),
+                text=[f"⚠️ <b>Barrio sin oferta escolar:</b><br>{nb}" for nb in nombres_barrios],
                 hoverinfo="text",
-                showlegend=False
+                name="Sin Oferta Escolar"
             )
         )
 

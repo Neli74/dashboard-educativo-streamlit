@@ -59,9 +59,21 @@ def cargar_datos():
         if gdf_barrios.crs is None or gdf_barrios.crs != "EPSG:4326":
             gdf_barrios = gdf_barrios.set_crs(epsg=4326, allow_override=True)
         
-    # Localizar columna con el nombre del barrio
-    posibles_cols = [c for c in gdf_barrios.columns if any(k in c.upper() for k in ["BARRIO", "NOMBRE", "BARRIOS", "NOMB_BARR"])]
-    col_nombre_shp = posibles_cols[0] if posibles_cols else gdf_barrios.columns[0]
+    # Selección estricta de la columna con nombres textuales (evita IDs numéricos)
+    cols_sin_geometria = [c for c in gdf_barrios.columns if c != "geometry"]
+    col_nombre_shp = None
+
+    for col in cols_sin_geometria:
+        # Convertir a texto y evaluar si tiene caracteres alfabéticos
+        serie_txt = gdf_barrios[col].astype(str).str.strip()
+        tiene_letras = serie_txt.str.contains(r"[a-zA-Z]", regex=True).mean()
+        if tiene_letras > 0.5:  # Más de la mitad son nombres reales, no códigos numéricos
+            col_nombre_shp = col
+            break
+
+    if col_nombre_shp is None:
+        col_nombre_shp = cols_sin_geometria[0]
+
     gdf_barrios["NOMBRE_BARRIO_SHP"] = gdf_barrios[col_nombre_shp].astype(str).str.strip().str.upper()
 
     # Cruce espacial liviano
@@ -98,9 +110,9 @@ def cargar_datos():
     df_demanda = pd.DataFrame(demanda)
     df_demanda["Ratio_Alumnos_x_Escuela"] = (df_demanda["Alumnos_INDEC"] / df_demanda["Escuelas"]).round(0).astype(int)
     
-    return df_esc, gdf_barrios, gdf_barrios_sin_escuelas, total_barrios_sin_oferta, nombres_sin_oferta, df_demanda
+    return df_esc, gdf_barrios, gdf_barrios_sin_escuelas, total_barrios_sin_oferta, nombres_sin_oferta, df_demanda, cols_sin_geometria, col_nombre_shp
 
-df_escuelas, gdf_barrios, gdf_barrios_sin_escuelas, total_sin_oferta, lista_sin_oferta, df_demanda = cargar_datos()
+df_escuelas, gdf_barrios, gdf_barrios_sin_escuelas, total_sin_oferta, lista_sin_oferta, df_demanda, cols_disponibles, col_usada = cargar_datos()
 
 # 2. Barra lateral de filtros
 st.sidebar.title("Filtros del Tablero")
@@ -145,6 +157,11 @@ modalidades_sel = st.sidebar.multiselect(
     options=modalidades_presentes,
     default=modalidades_presentes
 )
+
+# Información de capa territorial en la barra lateral
+st.sidebar.markdown("---")
+st.sidebar.caption(f"📍 **Columna de barrios leída:** `{col_usada}`")
+st.sidebar.caption(f"📁 **Columnas detectadas en el archivo:** {', '.join(cols_disponibles)}")
 
 # Aplicación progresiva de filtros
 df_filtrado = df_escuelas.copy()

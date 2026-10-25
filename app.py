@@ -59,15 +59,14 @@ def cargar_datos():
         if gdf_barrios.crs is None or gdf_barrios.crs != "EPSG:4326":
             gdf_barrios = gdf_barrios.set_crs(epsg=4326, allow_override=True)
         
-    # Selección estricta de la columna con nombres textuales (evita IDs numéricos)
+    # Selección de columna con nombres de texto
     cols_sin_geometria = [c for c in gdf_barrios.columns if c != "geometry"]
     col_nombre_shp = None
 
     for col in cols_sin_geometria:
-        # Convertir a texto y evaluar si tiene caracteres alfabéticos
         serie_txt = gdf_barrios[col].astype(str).str.strip()
         tiene_letras = serie_txt.str.contains(r"[a-zA-Z]", regex=True).mean()
-        if tiene_letras > 0.5:  # Más de la mitad son nombres reales, no códigos numéricos
+        if tiene_letras > 0.5:
             col_nombre_shp = col
             break
 
@@ -158,12 +157,11 @@ modalidades_sel = st.sidebar.multiselect(
     default=modalidades_presentes
 )
 
-# Información de capa territorial en la barra lateral
 st.sidebar.markdown("---")
 st.sidebar.caption(f"📍 **Columna de barrios leída:** `{col_usada}`")
-st.sidebar.caption(f"📁 **Columnas detectadas en el archivo:** {', '.join(cols_disponibles)}")
+st.sidebar.caption(f"📁 **Columnas detectadas:** {', '.join(cols_disponibles)}")
 
-# Aplicación progresiva de filtros
+# Aplicación de filtros
 df_filtrado = df_escuelas.copy()
 
 if barrios_sel:
@@ -255,8 +253,10 @@ with col_mapa:
             hovertemplate="<b>%{hovertext}</b><br>%{customdata[0]}<br>Nivel: %{customdata[1]}<br>Modalidad: %{customdata[2]}<br>CUE: %{customdata[3]}<extra></extra>"
         )
 
-    # Límites generales de barrios
-    if ver_barrios:
+    traza_cls = getattr(go, "Scattermap", getattr(go, "Scattermapbox", None))
+
+    # 1. Límites generales de barrios
+    if ver_barrios and traza_cls:
         lats_barrios, lons_barrios = [], []
         for geom in gdf_barrios.geometry:
             if geom is None:
@@ -271,59 +271,44 @@ with col_mapa:
                     lons_barrios.extend(x.tolist() + [None])
                     lats_barrios.extend(y.tolist() + [None])
 
-        traza_cls = getattr(go, "Scattermap", getattr(go, "Scattermapbox", None))
-        if traza_cls:
-            fig_mapa.add_trace(
-                traza_cls(
-                    lat=lats_barrios,
-                    lon=lons_barrios,
-                    mode="lines",
-                    line=dict(width=1.5, color="#1B4F72"),
-                    name="Límites Generales",
-                    hoverinfo="none"
-                )
+        fig_mapa.add_trace(
+            traza_cls(
+                lat=lats_barrios,
+                lon=lons_barrios,
+                mode="lines",
+                line=dict(width=1.5, color="#1B4F72"),
+                name="Límites Generales",
+                hoverinfo="none"
             )
+        )
 
-    # Perímetro en rojo y tooltip con nombre para barrios sin oferta
-    if ver_sin_oferta and not gdf_barrios_sin_escuelas.empty:
-        lats_so, lons_so = [], []
-        for geom in gdf_barrios_sin_escuelas.geometry:
+    # 2. Polígonos con detección de cursor activa (relleno interactivo)
+    if ver_sin_oferta and not gdf_barrios_sin_escuelas.empty and traza_cls:
+        primera_traza = True
+        for _, fila in gdf_barrios_sin_escuelas.iterrows():
+            geom = fila.geometry
+            nom = fila["NOMBRE_BARRIO_SHP"]
             if geom is None:
                 continue
-            if geom.geom_type == "Polygon":
-                x, y = geom.exterior.xy
-                lons_so.extend(x.tolist() + [None])
-                lats_so.extend(y.tolist() + [None])
-            elif geom.geom_type == "MultiPolygon":
-                for poly in geom.geoms:
-                    x, y = poly.exterior.xy
-                    lons_so.extend(x.tolist() + [None])
-                    lats_so.extend(y.tolist() + [None])
-
-        traza_cls = getattr(go, "Scattermap", getattr(go, "Scattermapbox", None))
-        if traza_cls:
-            fig_mapa.add_trace(
-                traza_cls(
-                    lat=lats_so,
-                    lon=lons_so,
-                    mode="lines",
-                    line=dict(width=2.5, color="#E74C3C"),
-                    name="Límites Sin Escuelas",
-                    hoverinfo="none"
+            
+            poligonos = [geom] if geom.geom_type == "Polygon" else list(geom.geoms)
+            for poly in poligonos:
+                x, y = poly.exterior.xy
+                fig_mapa.add_trace(
+                    traza_cls(
+                        lat=list(y),
+                        lon=list(x),
+                        mode="lines",
+                        fill="toself",
+                        fillcolor="rgba(231, 76, 60, 0.25)",
+                        line=dict(width=2, color="#E74C3C"),
+                        name="Sin Oferta Escolar" if primera_traza else None,
+                        showlegend=primera_traza,
+                        hoverinfo="text",
+                        text=f"⚠️ <b>Barrio sin oferta escolar:</b><br>{nom}"
+                    )
                 )
-            )
-            centroides = gdf_barrios_sin_escuelas.geometry.centroid
-            fig_mapa.add_trace(
-                traza_cls(
-                    lat=centroides.y,
-                    lon=centroides.x,
-                    mode="markers",
-                    marker=dict(size=6, color="#E74C3C", opacity=0.5),
-                    text=gdf_barrios_sin_escuelas["NOMBRE_BARRIO_SHP"],
-                    hovertemplate="⚠️ <b>Barrio sin oferta:</b> %{text}<extra></extra>",
-                    name="Identificador Sin Oferta"
-                )
-            )
+                primera_traza = False
 
     fig_mapa.update_layout(
         margin=dict(l=0, r=0, t=10, b=10),

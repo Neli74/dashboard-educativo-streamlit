@@ -3,6 +3,7 @@ import pandas as pd
 import geopandas as gpd
 import plotly.express as px
 import plotly.graph_objects as go
+import json
 
 st.set_page_config(page_title="Tablero Educativo Corrientes - INDEC vs Oferta", layout="wide")
 
@@ -93,6 +94,7 @@ def cargar_datos():
     total_barrios_sin_oferta = len(nombres_sin_oferta)
 
     gdf_barrios_sin_escuelas = gdf_barrios[gdf_barrios["NOMBRE_BARRIO_SHP"].isin(nombres_sin_oferta)].copy()
+    gdf_barrios_sin_escuelas["id_str"] = gdf_barrios_sin_escuelas.index.astype(str)
 
     # Demanda INDEC vs Oferta
     n_maternal = int(df_esc["N. ED. TERMPRANA"].sum()) if "N. ED. TERMPRANA" in df_esc.columns else 32
@@ -249,10 +251,11 @@ with col_mapa:
             hovertemplate="<b>%{hovertext}</b><br>%{customdata[0]}<br>Nivel: %{customdata[1]}<br>Modalidad: %{customdata[2]}<br>CUE: %{customdata[3]}<extra></extra>"
         )
 
-    traza_cls = getattr(go, "Scattermap", getattr(go, "Scattermapbox", None))
+    traza_lineas_cls = getattr(go, "Scattermap", getattr(go, "Scattermapbox", None))
+    traza_choro_cls = getattr(go, "Choroplethmap", getattr(go, "Choroplethmapbox", None))
 
     # 1. Límites generales de barrios
-    if ver_barrios and traza_cls:
+    if ver_barrios and traza_lineas_cls:
         lats_barrios, lons_barrios = [], []
         for geom in gdf_barrios.geometry:
             if geom is None:
@@ -268,7 +271,7 @@ with col_mapa:
                     lats_barrios.extend(y.tolist() + [None])
 
         fig_mapa.add_trace(
-            traza_cls(
+            traza_lineas_cls(
                 lat=lats_barrios,
                 lon=lons_barrios,
                 mode="lines",
@@ -278,52 +281,30 @@ with col_mapa:
             )
         )
 
-    # 2. Perímetros en rojo y activación de hover con el nombre del barrio
-    if ver_sin_oferta and not gdf_barrios_sin_escuelas.empty and traza_cls:
-        lats_so, lons_so = [], []
-        for geom in gdf_barrios_sin_escuelas.geometry:
-            if geom is None:
-                continue
-            if geom.geom_type == "Polygon":
-                x, y = geom.exterior.xy
-                lons_so.extend(x.tolist() + [None])
-                lats_so.extend(y.tolist() + [None])
-            elif geom.geom_type == "MultiPolygon":
-                for poly in geom.geoms:
-                    x, y = poly.exterior.xy
-                    lons_so.extend(x.tolist() + [None])
-                    lats_so.extend(y.tolist() + [None])
-
-        # Líneas perimetrales rojas
+    # 2. Resaltado coroplético con activación directa de cursor sobre toda la superficie
+    if ver_sin_oferta and not gdf_barrios_sin_escuelas.empty and traza_choro_cls:
+        geojson_sin_oferta = json.loads(gdf_barrios_sin_escuelas.to_json())
+        
         fig_mapa.add_trace(
-            traza_cls(
-                lat=lats_so,
-                lon=lons_so,
-                mode="lines",
-                line=dict(width=2.5, color="#E74C3C"),
-                name="Límites Sin Escuelas",
-                hoverinfo="none"
-            )
-        )
-
-        # Círculos interactivos en el centro para desplegar el cartel con el nombre
-        centroides = gdf_barrios_sin_escuelas.geometry.centroid
-        nombres_barrios = list(gdf_barrios_sin_escuelas["NOMBRE_BARRIO_SHP"])
-        fig_mapa.add_trace(
-            traza_cls(
-                lat=list(centroides.y),
-                lon=list(centroides.x),
-                mode="markers",
-                marker=dict(size=24, color="rgba(231, 76, 60, 0.45)"),
-                text=[f"⚠️ <b>Barrio sin oferta escolar:</b><br>{nb}" for nb in nombres_barrios],
-                hoverinfo="text",
-                name="Sin Oferta Escolar"
+            traza_choro_cls(
+                geojson=geojson_sin_oferta,
+                locations=gdf_barrios_sin_escuelas["id_str"],
+                featureidkey="properties.id_str",
+                z=[1] * len(gdf_barrios_sin_escuelas),
+                colorscale=[[0, "rgba(231, 76, 60, 0.40)"], [1, "rgba(231, 76, 60, 0.40)"]],
+                marker_line_color="#C0392B",
+                marker_line_width=2,
+                showscale=False,
+                name="Sin Oferta Escolar",
+                text=gdf_barrios_sin_escuelas["NOMBRE_BARRIO_SHP"],
+                hovertemplate="⚠️ <b>Barrio sin oferta escolar:</b><br>%{text}<extra></extra>"
             )
         )
 
     fig_mapa.update_layout(
         margin=dict(l=0, r=0, t=10, b=10),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0)
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        hovermode="closest"
     )
     
     evento_mapa = st.plotly_chart(

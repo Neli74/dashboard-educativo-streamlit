@@ -59,12 +59,12 @@ def cargar_datos():
         if gdf_barrios.crs is None or gdf_barrios.crs != "EPSG:4326":
             gdf_barrios = gdf_barrios.set_crs(epsg=4326, allow_override=True)
         
-    # Identificar columna de nombre del barrio en el shapefile
+    # Identificar columna con el nombre del barrio en el shapefile
     posibles_cols = [c for c in gdf_barrios.columns if c.upper() in ["BARRIO", "NOMBRE", "BARRIOS", "NOMB_BARR"]]
     col_nombre_shp = posibles_cols[0] if posibles_cols else gdf_barrios.columns[0]
     gdf_barrios["NOMBRE_BARRIO_SHP"] = gdf_barrios[col_nombre_shp].astype(str).str.strip()
 
-    # Detección de barrios sin escuelas mediante Spatial Join
+    # Detección de barrios sin escuelas mediante cruce espacial
     escuelas_geo = df_esc.dropna(subset=["LATITUD", "LONGITUD"]).copy()
     gdf_escuelas_pts = gpd.GeoDataFrame(
         escuelas_geo,
@@ -142,7 +142,7 @@ modalidades_sel = st.sidebar.multiselect(
     default=modalidades_presentes
 )
 
-# Aplicación progresiva de filtros sobre escuelas
+# Aplicación de filtros
 df_filtrado = df_escuelas.copy()
 
 if barrios_sel:
@@ -234,7 +234,7 @@ with col_mapa:
             hovertemplate="<b>%{hovertext}</b><br>%{customdata[0]}<br>Nivel: %{customdata[1]}<br>Modalidad: %{customdata[2]}<br>CUE: %{customdata[3]}<extra></extra>"
         )
 
-    # 1. Trazado de límites generales de todos los barrios
+    # 1. Límites generales de todos los barrios
     if ver_barrios:
         lats_barrios, lons_barrios = [], []
         for geom in gdf_barrios.geometry:
@@ -263,7 +263,7 @@ with col_mapa:
                 )
             )
 
-    # 2. Trazado destacado y tooltips de Barrios sin Oferta
+    # 2. Límites en rojo y nombres escritos sobre los barrios sin oferta
     if ver_sin_oferta and not gdf_barrios_sin_escuelas.empty:
         lats_so, lons_so = [], []
         for geom in gdf_barrios_sin_escuelas.geometry:
@@ -288,21 +288,22 @@ with col_mapa:
                     lon=lons_so,
                     mode="lines",
                     line=dict(width=2.5, color="#E74C3C"),
-                    name="Barrios sin Escuelas",
+                    name="Límites Sin Escuelas",
                     hoverinfo="none"
                 )
             )
-            # Etiquetas informativas en el centroide del barrio
+            # Nombre visible impreso en el mapa
             centroides = gdf_barrios_sin_escuelas.geometry.centroid
             fig_mapa.add_trace(
                 traza_cls(
                     lat=centroides.y,
                     lon=centroides.x,
-                    mode="markers",
-                    marker=dict(size=8, color="#E74C3C", opacity=0.7),
+                    mode="text",
                     text=gdf_barrios_sin_escuelas["NOMBRE_BARRIO_SHP"],
-                    hovertemplate="⚠️ <b>Barrio sin oferta escolar:</b><br>%{text}<extra></extra>",
-                    name="Identificador Sin Oferta"
+                    textposition="middle center",
+                    textfont=dict(size=10, color="#900C3F", family="Arial Black"),
+                    name="Nombres Sin Oferta",
+                    hoverinfo="text"
                 )
             )
 
@@ -328,6 +329,12 @@ with col_mapa:
                 f"🏘️ **Barrio:** {escuela_tocada['BARRIOS_CORREGIDO']}  \n"
                 f"📋 **CUE:** {escuela_tocada['cue']} | **Nivel:** {escuela_tocada['Nivel_Oferta']} | **Modalidad:** {escuela_tocada['Modalidad_Display']}"
             )
+
+    # Cuadro desplegable para leer los nombres de los barrios sin escuelas
+    if not gdf_barrios_sin_escuelas.empty:
+        with st.expander(f"⚠️ Ver lista detallada de barrios sin oferta escolar ({len(gdf_barrios_sin_escuelas)})"):
+            lista_sin = sorted(gdf_barrios_sin_escuelas["NOMBRE_BARRIO_SHP"].unique())
+            st.write(", ".join(lista_sin))
 
 with col_grafico:
     st.subheader("Distribución de Escuelas por Barrio (Capital)")

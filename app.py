@@ -27,7 +27,7 @@ def cargar_datos():
     
     df_esc["Nivel_Oferta"] = df_esc.apply(clasificar_nivel, axis=1)
 
-    # Clasificación jerárquica con los nombres exactos de las columnas M.
+    # Clasificación jerárquica de modalidad
     def clasificar_modalidad_estricta(row):
         if row.get("M. CONTEXTO DE ENCIERRO") == 1:
             return "Contexto de Encierro"
@@ -59,6 +59,26 @@ def cargar_datos():
         if gdf_barrios.crs is None or gdf_barrios.crs != "EPSG:4326":
             gdf_barrios = gdf_barrios.set_crs(epsg=4326, allow_override=True)
         
+    # Identificar columna de nombre del barrio en el shapefile
+    posibles_cols = [c for c in gdf_barrios.columns if c.upper() in ["BARRIO", "NOMBRE", "BARRIOS", "NOMB_BARR"]]
+    col_nombre_shp = posibles_cols[0] if posibles_cols else gdf_barrios.columns[0]
+    gdf_barrios["NOMBRE_BARRIO_SHP"] = gdf_barrios[col_nombre_shp].astype(str).str.strip()
+
+    # Detección de barrios sin escuelas mediante Spatial Join
+    escuelas_geo = df_esc.dropna(subset=["LATITUD", "LONGITUD"]).copy()
+    gdf_escuelas_pts = gpd.GeoDataFrame(
+        escuelas_geo,
+        geometry=gpd.points_from_xy(escuelas_geo["LONGITUD"], escuelas_geo["LATITUD"]),
+        crs="EPSG:4326"
+    )
+    
+    # Cruce espacial: Qué escuelas caen en cada polígono
+    cruce_espacial = gdf_barrios.sjoin(gdf_escuelas_pts, how="left", predicate="contains")
+    conteo_por_poligono = cruce_espacial.groupby(cruce_espacial.index)["index_right"].count()
+    
+    gdf_barrios["CANT_ESCUELAS_POLIGONO"] = conteo_por_poligono
+    gdf_barrios_sin_escuelas = gdf_barrios[gdf_barrios["CANT_ESCUELAS_POLIGONO"] == 0].copy()
+
     # Demanda INDEC vs Oferta
     n_maternal = int(df_esc["N. ED. TERMPRANA"].sum()) if "N. ED. TERMPRANA" in df_esc.columns else 32
     n_inicial = int(df_esc["N.INICIAL"].sum()) if "N.INICIAL" in df_esc.columns else 136
@@ -74,14 +94,13 @@ def cargar_datos():
     df_demanda = pd.DataFrame(demanda)
     df_demanda["Ratio_Alumnos_x_Escuela"] = (df_demanda["Alumnos_INDEC"] / df_demanda["Escuelas"]).round(0).astype(int)
     
-    return df_esc, gdf_barrios, df_demanda
+    return df_esc, gdf_barrios, gdf_barrios_sin_escuelas, df_demanda
 
-df_escuelas, gdf_barrios, df_demanda = cargar_datos()
+df_escuelas, gdf_barrios, gdf_barrios_sin_escuelas, df_demanda = cargar_datos()
 
 # 2. Barra lateral de filtros
 st.sidebar.title("Filtros del Tablero")
 
-# Filtro 1: Barrios
 barrios_disponibles = sorted([b for b in df_escuelas["BARRIOS_CORREGIDO"].dropna().unique()])
 barrios_sel = st.sidebar.multiselect(
     "Seleccionar Barrio(s):",
@@ -89,7 +108,6 @@ barrios_sel = st.sidebar.multiselect(
     placeholder="Todos los barrios (o seleccioná uno o más)"
 )
 
-# Filtro 2: Niveles con nombres limpios y todos activos por defecto (incluye Superior)
 mapa_niveles = {
     "N. SECUNDARIO": "Secundaria",
     "N. PRIMARIO": "Primaria",
@@ -106,7 +124,6 @@ niveles_sel = st.sidebar.multiselect(
     default=nombres_niveles_disponibles
 )
 
-# Filtro 3: Modalidades Estándar
 modalidades_unicas = [
     "Común", 
     "Especial", 
@@ -125,7 +142,7 @@ modalidades_sel = st.sidebar.multiselect(
     default=modalidades_presentes
 )
 
-# Aplicación progresiva de filtros
+# Aplicación progresiva de filtros sobre escuelas
 df_filtrado = df_escuelas.copy()
 
 if barrios_sel:
@@ -142,7 +159,7 @@ if modalidades_sel:
 # 3. Encabezado y KPIs
 st.title("Tablero Educativo Corrientes - INDEC vs Oferta")
 
-k1, k2, k3, k4 = st.columns(4)
+k1, k2, k3, k4, k5 = st.columns(5)
 k1.metric("Establecimientos Filtrados", len(df_filtrado))
 k2.metric("Población Escolarizada", "161.863")
 k3.metric("Mayor Demanda", "Secundaria (50.204)")
@@ -152,6 +169,7 @@ if not df_filtrado.empty:
     k4.metric("Mayor concentración", f"{top_b} ({top_c})")
 else:
     k4.metric("Mayor concentración", "Sin datos")
+k5.metric("Barrios sin Oferta", len(gdf_barrios_sin_escuelas), help="Barrios catastrales sin escuelas registradas")
 
 st.markdown("---")
 
@@ -161,10 +179,11 @@ col_mapa, col_grafico = st.columns([1.1, 0.9])
 with col_mapa:
     st.subheader("Distribución Territorial de Escuelas")
     
-    c_capas1, c_capas2, c_capas3 = st.columns(3)
-    ver_barrios = c_capas1.checkbox("Ver Polígonos de Barrios", value=True)
-    ver_escuelas = c_capas2.checkbox("Ver Establecimientos", value=True)
-    criterio_color = c_capas3.radio("Colorear por:", ["Nivel Educativo", "Modalidad"], horizontal=True)
+    c_capas1, c_capas2, c_capas3, c_capas4 = st.columns(4)
+    ver_barrios = c_capas1.checkbox("Límites de Barrios", value=True)
+    ver_sin_oferta = c_capas2.checkbox("Destacar Sin Oferta", value=True)
+    ver_escuelas = c_capas3.checkbox("Ver Escuelas", value=True)
+    criterio_color = c_capas4.radio("Colorear por:", ["Nivel Educativo", "Modalidad"], horizontal=True)
 
     centro_lat, centro_lon = -27.4692, -58.8306
     zoom_val = 11.5
@@ -174,15 +193,8 @@ with col_mapa:
         zoom_val = 12.8 if len(barrios_sel) > 1 else 13.5
 
     paleta_colores = [
-        "#E74C3C",  # Rojo
-        "#2ECC71",  # Verde
-        "#F39C12",  # Naranja
-        "#8E44AD",  # Violeta
-        "#1ABC9C",  # Turquesa
-        "#3498DB",  # Azul
-        "#E67E22",  # Cobre
-        "#95A5A6",  # Gris
-        "#D35400"   # Naranja fuerte
+        "#E74C3C", "#2ECC71", "#F39C12", "#8E44AD", "#1ABC9C", 
+        "#3498DB", "#E67E22", "#95A5A6", "#D35400"
     ]
 
     campo_color = "Nivel_Oferta" if criterio_color == "Nivel Educativo" else "Modalidad_Display"
@@ -222,9 +234,9 @@ with col_mapa:
             hovertemplate="<b>%{hovertext}</b><br>%{customdata[0]}<br>Nivel: %{customdata[1]}<br>Modalidad: %{customdata[2]}<br>CUE: %{customdata[3]}<extra></extra>"
         )
 
+    # 1. Trazado de límites generales de todos los barrios
     if ver_barrios:
-        lats_barrios = []
-        lons_barrios = []
+        lats_barrios, lons_barrios = [], []
         for geom in gdf_barrios.geometry:
             if geom is None:
                 continue
@@ -238,25 +250,61 @@ with col_mapa:
                     lons_barrios.extend(x.tolist() + [None])
                     lats_barrios.extend(y.tolist() + [None])
 
-        if hasattr(go, "Scattermap"):
-            traza_limites = go.Scattermap(
-                lat=lats_barrios,
-                lon=lons_barrios,
-                mode="lines",
-                line=dict(width=2, color="#0E6251"),
-                name="Límites Barrios",
-                hoverinfo="none"
+        traza_cls = getattr(go, "Scattermap", getattr(go, "Scattermapbox", None))
+        if traza_cls:
+            fig_mapa.add_trace(
+                traza_cls(
+                    lat=lats_barrios,
+                    lon=lons_barrios,
+                    mode="lines",
+                    line=dict(width=1.5, color="#1B4F72"),
+                    name="Límites Generales",
+                    hoverinfo="none"
+                )
             )
-        else:
-            traza_limites = go.Scattermapbox(
-                lat=lats_barrios,
-                lon=lons_barrios,
-                mode="lines",
-                line=dict(width=2, color="#0E6251"),
-                name="Límites Barrios",
-                hoverinfo="none"
+
+    # 2. Trazado destacado y tooltips de Barrios sin Oferta
+    if ver_sin_oferta and not gdf_barrios_sin_escuelas.empty:
+        lats_so, lons_so = [], []
+        for geom in gdf_barrios_sin_escuelas.geometry:
+            if geom is None:
+                continue
+            if geom.geom_type == "Polygon":
+                x, y = geom.exterior.xy
+                lons_so.extend(x.tolist() + [None])
+                lats_so.extend(y.tolist() + [None])
+            elif geom.geom_type == "MultiPolygon":
+                for poly in geom.geoms:
+                    x, y = poly.exterior.xy
+                    lons_so.extend(x.tolist() + [None])
+                    lats_so.extend(y.tolist() + [None])
+
+        traza_cls = getattr(go, "Scattermap", getattr(go, "Scattermapbox", None))
+        if traza_cls:
+            # Perímetro en rojo
+            fig_mapa.add_trace(
+                traza_cls(
+                    lat=lats_so,
+                    lon=lons_so,
+                    mode="lines",
+                    line=dict(width=2.5, color="#E74C3C"),
+                    name="Barrios sin Escuelas",
+                    hoverinfo="none"
+                )
             )
-        fig_mapa.add_trace(traza_limites)
+            # Etiquetas informativas en el centroide del barrio
+            centroides = gdf_barrios_sin_escuelas.geometry.centroid
+            fig_mapa.add_trace(
+                traza_cls(
+                    lat=centroides.y,
+                    lon=centroides.x,
+                    mode="markers",
+                    marker=dict(size=8, color="#E74C3C", opacity=0.7),
+                    text=gdf_barrios_sin_escuelas["NOMBRE_BARRIO_SHP"],
+                    hovertemplate="⚠️ <b>Barrio sin oferta escolar:</b><br>%{text}<extra></extra>",
+                    name="Identificador Sin Oferta"
+                )
+            )
 
     fig_mapa.update_layout(
         margin=dict(l=0, r=0, t=10, b=10),

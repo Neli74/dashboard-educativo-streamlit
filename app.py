@@ -383,7 +383,7 @@ with col_dona:
     elif len(barrios_sel) > 1:
         sufijo_b = f"- {len(barrios_sel)} Barrios"
     else:
-        sufijo_b = "- Toda la Capital"
+        sufijo_b = "-Ctes Capital"
 
     if criterio_color == "Nivel Educativo":
         st.subheader(f"Distribución: Establecimientos por Nivel {sufijo_b}")

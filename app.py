@@ -3,7 +3,6 @@ import pandas as pd
 import geopandas as gpd
 import plotly.express as px
 import plotly.graph_objects as go
-import json
 
 st.set_page_config(page_title="Tablero Educativo Corrientes - INDEC vs Oferta", layout="wide")
 
@@ -94,7 +93,6 @@ def cargar_datos():
     total_barrios_sin_oferta = len(nombres_sin_oferta)
 
     gdf_barrios_sin_escuelas = gdf_barrios[gdf_barrios["NOMBRE_BARRIO_SHP"].isin(nombres_sin_oferta)].copy()
-    gdf_barrios_sin_escuelas["id_str"] = gdf_barrios_sin_escuelas.index.astype(str)
 
     # Demanda INDEC vs Oferta
     n_maternal = int(df_esc["N. ED. TERMPRANA"].sum()) if "N. ED. TERMPRANA" in df_esc.columns else 32
@@ -251,11 +249,10 @@ with col_mapa:
             hovertemplate="<b>%{hovertext}</b><br>%{customdata[0]}<br>Nivel: %{customdata[1]}<br>Modalidad: %{customdata[2]}<br>CUE: %{customdata[3]}<extra></extra>"
         )
 
-    traza_lineas_cls = getattr(go, "Scattermap", getattr(go, "Scattermapbox", None))
-    traza_choro_cls = getattr(go, "Choroplethmap", getattr(go, "Choroplethmapbox", None))
+    traza_cls = getattr(go, "Scattermap", getattr(go, "Scattermapbox", None))
 
     # 1. Límites generales de barrios
-    if ver_barrios and traza_lineas_cls:
+    if ver_barrios and traza_cls:
         lats_barrios, lons_barrios = [], []
         for geom in gdf_barrios.geometry:
             if geom is None:
@@ -271,7 +268,7 @@ with col_mapa:
                     lats_barrios.extend(y.tolist() + [None])
 
         fig_mapa.add_trace(
-            traza_lineas_cls(
+            traza_cls(
                 lat=lats_barrios,
                 lon=lons_barrios,
                 mode="lines",
@@ -281,25 +278,38 @@ with col_mapa:
             )
         )
 
-    # 2. Resaltado coroplético con activación directa de cursor sobre toda la superficie
-    if ver_sin_oferta and not gdf_barrios_sin_escuelas.empty and traza_choro_cls:
-        geojson_sin_oferta = json.loads(gdf_barrios_sin_escuelas.to_json())
-        
-        fig_mapa.add_trace(
-            traza_choro_cls(
-                geojson=geojson_sin_oferta,
-                locations=gdf_barrios_sin_escuelas["id_str"],
-                featureidkey="properties.id_str",
-                z=[1] * len(gdf_barrios_sin_escuelas),
-                colorscale=[[0, "rgba(231, 76, 60, 0.40)"], [1, "rgba(231, 76, 60, 0.40)"]],
-                marker_line_color="#C0392B",
-                marker_line_width=2,
-                showscale=False,
-                name="Sin Oferta Escolar",
-                text=gdf_barrios_sin_escuelas["NOMBRE_BARRIO_SHP"],
-                hovertemplate="⚠️ <b>Barrio sin oferta escolar:</b><br>%{text}<extra></extra>"
-            )
-        )
+    # 2. Polígonos de barrios sin oferta con sombreado y hover reactivo
+    if ver_sin_oferta and not gdf_barrios_sin_escuelas.empty and traza_cls:
+        primera_traza = True
+        for _, fila in gdf_barrios_sin_escuelas.iterrows():
+            geom = fila.geometry
+            nom = fila["NOMBRE_BARRIO_SHP"]
+            if geom is None:
+                continue
+            
+            poligonos = [geom] if geom.geom_type == "Polygon" else list(geom.geoms)
+            for poly in poligonos:
+                x, y = poly.exterior.xy
+                l_x = list(x)
+                l_y = list(y)
+                # Texto repetido para cada coordenada del perímetro
+                texto_hover = [f"⚠️ <b>Barrio sin oferta escolar:</b><br>{nom}"] * len(l_y)
+                
+                fig_mapa.add_trace(
+                    traza_cls(
+                        lat=l_y,
+                        lon=l_x,
+                        mode="lines",
+                        fill="toself",
+                        fillcolor="rgba(231, 76, 60, 0.35)",
+                        line=dict(width=2, color="#C0392B"),
+                        name="Sin Oferta Escolar" if primera_traza else None,
+                        showlegend=primera_traza,
+                        hoverinfo="text",
+                        text=texto_hover
+                    )
+                )
+                primera_traza = False
 
     fig_mapa.update_layout(
         margin=dict(l=0, r=0, t=10, b=10),

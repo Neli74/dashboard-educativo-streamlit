@@ -172,7 +172,7 @@ if modalidades_sel:
     df_filtrado = df_filtrado[df_filtrado["Modalidad_Display"].isin(modalidades_sel)]
 
 # 3. Encabezado y KPIs
-st.title("Tablero Educativo Corrientes - INDEC vs Oferta")
+st.title("Establecimientos Educativos en Corrientes - INDEC vs Oferta")
 
 k1, k2, k3, k4, k5 = st.columns(5)
 k1.metric("Establecimientos Filtrados", len(df_filtrado))
@@ -336,9 +336,9 @@ with col_mapa:
             )
 
 with col_grafico:
-    st.subheader("Distribución de Escuelas por Barrio (Capital)")
+    st.subheader("Top 15: Distribución de Escuelas por Barrio (Capital)")
     
-    top_barrios = df_filtrado["BARRIOS_CORREGIDO"].value_counts().head(14).reset_index()
+    top_barrios = df_filtrado["BARRIOS_CORREGIDO"].value_counts().head(15).reset_index()
     top_barrios.columns = ["Barrio", "Cantidad_Escuelas"]
     
     fig_barras = px.bar(
@@ -386,7 +386,7 @@ with col_dona:
         sufijo_b = "- Toda la Capital"
 
     if criterio_color == "Nivel Educativo":
-        st.subheader(f"Distribución por Nivel {sufijo_b}")
+        st.subheader(f"Distribución: Establecimientos por Nivel {sufijo_b}")
         dist = df_filtrado["Nivel_Oferta"].value_counts().reset_index()
         dist.columns = ["Nivel", "Cantidad"]
         fig_sec = px.pie(

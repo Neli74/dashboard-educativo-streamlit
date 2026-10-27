@@ -11,7 +11,7 @@ st.set_page_config(page_title="Tablero Educativo Corrientes - INDEC vs Oferta", 
 def cargar_datos():
     df_esc = pd.read_excel("ESCUELAS_DEFINITIVA.xlsx")
     
-    # Clasificación por nivel educativo
+    # Clasificación por nivel educativo (para visualización / gráfico de torta)
     def clasificar_nivel(row):
         if row.get("N. SECUNDARIO") == 1:
             return "Secundaria"
@@ -59,7 +59,6 @@ def cargar_datos():
         if gdf_barrios.crs is None or gdf_barrios.crs != "EPSG:4326":
             gdf_barrios = gdf_barrios.set_crs(epsg=4326, allow_override=True)
         
-    # Selección de columna con nombres de texto reales
     cols_sin_geometria = [c for c in gdf_barrios.columns if c != "geometry"]
     col_nombre_shp = None
 
@@ -75,31 +74,12 @@ def cargar_datos():
 
     gdf_barrios["NOMBRE_BARRIO_SHP"] = gdf_barrios[col_nombre_shp].astype(str).str.strip().str.upper()
 
-    # Cruce espacial liviano
-    escuelas_geo = df_esc.dropna(subset=["LATITUD", "LONGITUD"]).copy()
-    gdf_escuelas_pts = gpd.GeoDataFrame(
-        escuelas_geo,
-        geometry=gpd.points_from_xy(escuelas_geo["LONGITUD"], escuelas_geo["LATITUD"]),
-        crs="EPSG:4326"
-    )
-    
-    cruce_espacial = gdf_barrios.sjoin(gdf_escuelas_pts, how="left", predicate="contains")
-    
-    # Identificar nombres de barrios con y sin oferta escolar
-    barrios_con_escuelas = cruce_espacial.dropna(subset=["index_right"])["NOMBRE_BARRIO_SHP"].unique()
-    todos_los_barrios = gdf_barrios["NOMBRE_BARRIO_SHP"].unique()
-    
-    nombres_sin_oferta = sorted([b for b in todos_los_barrios if b not in barrios_con_escuelas])
-    total_barrios_sin_oferta = len(nombres_sin_oferta)
-
-    gdf_barrios_sin_escuelas = gdf_barrios[gdf_barrios["NOMBRE_BARRIO_SHP"].isin(nombres_sin_oferta)].copy()
-
-    # Demanda INDEC vs Oferta
-    n_maternal = int(df_esc["N. ED. TERMPRANA"].sum()) if "N. ED. TERMPRANA" in df_esc.columns else 32
-    n_inicial = int(df_esc["N.INICIAL"].sum()) if "N.INICIAL" in df_esc.columns else 136
-    n_primario = int(df_esc["N. PRIMARIO"].sum()) if "N. PRIMARIO" in df_esc.columns else 136
-    n_secundario = int(df_esc["N. SECUNDARIO"].sum()) if "N. SECUNDARIO" in df_esc.columns else 98
-    n_superior = int(df_esc["N. SUPERIOR"].sum()) if "N. SUPERIOR" in df_esc.columns else 24
+    # Demanda INDEC (Censo 2022 - Cuadro 2.7.3) vs Oferta de Establecimientos que ofrecen el nivel
+    n_maternal = int(df_esc["N. ED. TERMPRANA"].sum()) if "N. ED. TERMPRANA" in df_esc.columns else 0
+    n_inicial = int(df_esc["N.INICIAL"].sum()) if "N.INICIAL" in df_esc.columns else 0
+    n_primario = int(df_esc["N. PRIMARIO"].sum()) if "N. PRIMARIO" in df_esc.columns else 0
+    n_secundario = int(df_esc["N. SECUNDARIO"].sum()) if "N. SECUNDARIO" in df_esc.columns else 0
+    n_superior = int(df_esc["N. SUPERIOR"].sum()) if "N. SUPERIOR" in df_esc.columns else 0
 
     demanda = {
         "Nivel": ["Materna / CDI (0 a 3)", "Inicial (Salas 4 y 5)", "Primaria", "Secundaria", "Superior"],
@@ -109,9 +89,9 @@ def cargar_datos():
     df_demanda = pd.DataFrame(demanda)
     df_demanda["Ratio_Alumnos_x_Escuela"] = (df_demanda["Alumnos_INDEC"] / df_demanda["Escuelas"]).round(0).astype(int)
     
-    return df_esc, gdf_barrios, gdf_barrios_sin_escuelas, total_barrios_sin_oferta, df_demanda
+    return df_esc, gdf_barrios, df_demanda
 
-df_escuelas, gdf_barrios, gdf_barrios_sin_escuelas, total_sin_oferta, df_demanda = cargar_datos()
+df_escuelas, gdf_barrios, df_demanda = cargar_datos()
 
 # 2. Barra lateral de filtros
 st.sidebar.title("Filtros del Tablero")
@@ -171,6 +151,23 @@ if niveles_sel:
 if modalidades_sel:
     df_filtrado = df_filtrado[df_filtrado["Modalidad_Display"].isin(modalidades_sel)]
 
+# Recálculo dinámico de barrios sin oferta según los filtros aplicados
+escuelas_geo_filtrada = df_filtrado.dropna(subset=["LATITUD", "LONGITUD"]).copy()
+if not escuelas_geo_filtrada.empty:
+    gdf_pts_filtro = gpd.GeoDataFrame(
+        escuelas_geo_filtrada,
+        geometry=gpd.points_from_xy(escuelas_geo_filtrada["LONGITUD"], escuelas_geo_filtrada["LATITUD"]),
+        crs="EPSG:4326"
+    )
+    cruce_filtro = gdf_barrios.sjoin(gdf_pts_filtro, how="left", predicate="contains")
+    barrios_con_oferta_filtro = cruce_filtro.dropna(subset=["index_right"])["NOMBRE_BARRIO_SHP"].unique()
+    nombres_sin_oferta_dinamico = [b for b in gdf_barrios["NOMBRE_BARRIO_SHP"].unique() if b not in barrios_con_oferta_filtro]
+else:
+    nombres_sin_oferta_dinamico = gdf_barrios["NOMBRE_BARRIO_SHP"].unique().tolist()
+
+total_sin_oferta_dinamico = len(nombres_sin_oferta_dinamico)
+gdf_barrios_sin_escuelas = gdf_barrios[gdf_barrios["NOMBRE_BARRIO_SHP"].isin(nombres_sin_oferta_dinamico)].copy()
+
 # 3. Encabezado y KPIs
 st.title("Establecimientos Educativos en Corrientes - INDEC vs Oferta")
 
@@ -184,7 +181,7 @@ if not df_filtrado.empty:
     k4.metric("Mayor concentración", f"{top_b} ({top_c})")
 else:
     k4.metric("Mayor concentración", "Sin datos")
-k5.metric("Barrios sin Oferta", total_sin_oferta, help="Cantidad de barrios catastrales sin escuelas registradas")
+k5.metric("Barrios sin Oferta", total_sin_oferta_dinamico, help="Barrios catastrales sin oferta según los filtros activos")
 
 st.markdown("---")
 
@@ -278,7 +275,7 @@ with col_mapa:
             )
         )
 
-    # 2. Polígonos de barrios sin oferta con sombreado y hover reactivo
+    # 2. Polígonos de barrios sin oferta
     if ver_sin_oferta and not gdf_barrios_sin_escuelas.empty and traza_cls:
         primera_traza = True
         for _, fila in gdf_barrios_sin_escuelas.iterrows():
@@ -292,8 +289,7 @@ with col_mapa:
                 x, y = poly.exterior.xy
                 l_x = list(x)
                 l_y = list(y)
-                # Texto repetido para cada coordenada del perímetro
-                texto_hover = [f"⚠️ <b>Barrio sin oferta escolar:</b><br>{nom}"] * len(l_y)
+                texto_hover = [f"<b>Barrio sin oferta escolar:</b><br>{nom}"] * len(l_y)
                 
                 fig_mapa.add_trace(
                     traza_cls(
@@ -324,16 +320,6 @@ with col_mapa:
         selection_mode="points",
         key="mapa_interactivo"
     )
-
-    if evento_mapa and "selection" in evento_mapa and evento_mapa["selection"]["points"]:
-        p_sel = evento_mapa["selection"]["points"][0]
-        if "point_index" in p_sel and p_sel["point_index"] < len(df_filtrado):
-            escuela_tocada = df_filtrado.iloc[p_sel["point_index"]]
-            st.success(
-                f"🏫 **Establecimiento:** {escuela_tocada['fna']}  \n"
-                f"🏘️ **Barrio:** {escuela_tocada['BARRIOS_CORREGIDO']}  \n"
-                f"📋 **CUE:** {escuela_tocada['cue']} | **Nivel:** {escuela_tocada['Nivel_Oferta']} | **Modalidad:** {escuela_tocada['Modalidad_Display']}"
-            )
 
 with col_grafico:
     st.subheader("Top 15: Distribución de Escuelas por Barrio (Capital)")
@@ -419,3 +405,31 @@ with col_dona:
         )
 
     st.plotly_chart(fig_sec, use_container_width=True)
+
+# 6. Panel Desplegable de Metodología y Fuentes (Requerido por tutoría)
+st.markdown("---")
+with st.expander("📚 Metodología, Fuentes y Limitaciones del Tablero"):
+    st.markdown("""
+    ### 1. Fuentes y Fechas de Datos
+    * **Padrón de Establecimientos:** Portal de Datos Abiertos de la Municipalidad de Corrientes ([Dataset de Establecimientos Educativos](https://datos.ciudaddecorrientes.gov.ar/dataset/establecimientos-educativos/archivo/b5ccd2d9-7426-48f1-b872-2ce93eb0298b)). Del total de registros, se procesaron **332 establecimientos válidos** tras excluir formación profesional, talleres artísticos y servicios complementarios[cite: 7].
+    * **Población y Demanda (INDEC):** Censo Nacional de Población, Hogares y Viviendas 2022, INDEC ([Cuadro 2.7.3 - Provincia de Corrientes, departamento Capital](https://www.indec.gob.ar/indec/web/Nivel4-Tema-2-41-165)). Corresponde a la población en viviendas particulares que asiste a algún establecimiento educativo, abierta por nivel.
+    * **Geometrías:** Capas vectoriales de polígonos de barrios provistas por la Municipalidad de Corrientes[cite: 1, 4].
+
+    ### 2. Supuestos y Criterios Metodológicos
+    * **Conteo por Nivel:** Se utiliza el criterio de *"establecimientos que ofrecen el nivel"*, permitiendo contar adecuadamente los edificios que albergan más de un nivel educativo (por ejemplo, escuelas con anexo de jardín) sin sumarlos de forma excluyente[cite: 6].
+    * **Tramos Etarios / Niveles:** 
+      * *Materna / CDI:* 0 a 3 años (7.321 asistencias).
+      * *Inicial:* Salas 4 y 5 (11.116 asistencias).
+      * *Primaria:* (46.040 asistencias).
+      * *Secundaria:* (50.204 asistencias).
+      * *Superior / Terciario:* (16.331 asistencias).
+    * **Alcance Demográfico:** Los datos de población escolarizada del INDEC corresponden al total del departamento Capital y actúan como referencia general del tablero[cite: 6].
+
+    ### 3. Límites del Tablero
+    * **Coordenadas:** El 82% de los establecimientos en el padrón oficial poseen ubicación marcada como "aproximada", lo cual puede generar leves desplazamientos espaciales en los límites vecinales al realizar el cruce[cite: 7].
+    * **Casos Rurales o Periféricos:** Establecimientos rurales específicos o ubicados en parajes y asentamientos alejados se evalúan según su coordenada precisa frente al polígono correspondiente[cite: 6, 7].
+    """)
+
+<FollowUp>
+* ¿Pudiste probar el código actualizado en Streamlit y verificar que se corrijan las alertas de los barrios sin oferta?
+</FollowUp>

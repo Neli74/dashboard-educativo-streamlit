@@ -411,21 +411,4 @@ st.markdown("---")
 with st.expander("📚 Metodología, Fuentes y Limitaciones del Tablero"):
     st.markdown("""
     ### 1. Fuentes y Fechas de Datos
-    * **Padrón de Establecimientos:** Portal de Datos Abiertos de la Municipalidad de Corrientes ([Dataset de Establecimientos Educativos](https://datos.ciudaddecorrientes.gov.ar/dataset/establecimientos-educativos/archivo/b5ccd2d9-7426-48f1-b872-2ce93eb0298b)). Del total de registros, se procesaron **332 establecimientos válidos** tras excluir formación profesional, talleres artísticos y servicios complementarios[cite: 7].
-    * **Población y Demanda (INDEC):** Censo Nacional de Población, Hogares y Viviendas 2022, INDEC ([Cuadro 2.7.3 - Provincia de Corrientes, departamento Capital](https://www.indec.gob.ar/indec/web/Nivel4-Tema-2-41-165)). Corresponde a la población en viviendas particulares que asiste a algún establecimiento educativo, abierta por nivel.
-    * **Geometrías:** Capas vectoriales de polígonos de barrios provistas por la Municipalidad de Corrientes[cite: 1, 4].
-
-    ### 2. Supuestos y Criterios Metodológicos
-    * **Conteo por Nivel:** Se utiliza el criterio de *"establecimientos que ofrecen el nivel"*, permitiendo contar adecuadamente los edificios que albergan más de un nivel educativo (por ejemplo, escuelas con anexo de jardín) sin sumarlos de forma excluyente[cite: 6].
-    * **Tramos Etarios / Niveles:** 
-      * *Materna / CDI:* 0 a 3 años (7.321 asistencias).
-      * *Inicial:* Salas 4 y 5 (11.116 asistencias).
-      * *Primaria:* (46.040 asistencias).
-      * *Secundaria:* (50.204 asistencias).
-      * *Superior / Terciario:* (16.331 asistencias).
-    * **Alcance Demográfico:** Los datos de población escolarizada del INDEC corresponden al total del departamento Capital y actúan como referencia general del tablero[cite: 6].
-
-    ### 3. Límites del Tablero
-    * **Coordenadas:** El 82% de los establecimientos en el padrón oficial poseen ubicación marcada como "aproximada", lo cual puede generar leves desplazamientos espaciales en los límites vecinales al realizar el cruce[cite: 7].
-    * **Casos Rurales o Periféricos:** Establecimientos rurales específicos o ubicados en parajes y asentamientos alejados se evalúan según su coordenada precisa frente al polígono correspondiente[cite: 6, 7].
-    """)
+    * **Padrón de Establecimientos:** Portal de Datos Abiertos de la Municipalidad de Corrientes (Dataset de Establecimientos Educativos). Del total

@@ -406,7 +406,7 @@ with col_dona:
 
     st.plotly_chart(fig_sec, use_container_width=True)
 
-# 6. Panel Desplegable de Metodología y Fuentes (Requerido por tutoría)
+# 6. Panel Desplegable de Metodología y Fuentes
 st.markdown("---")
 with st.expander("📚 Metodología, Fuentes y Limitaciones del Tablero"):
     st.markdown("""
@@ -429,7 +429,3 @@ with st.expander("📚 Metodología, Fuentes y Limitaciones del Tablero"):
     * **Coordenadas:** El 82% de los establecimientos en el padrón oficial poseen ubicación marcada como "aproximada", lo cual puede generar leves desplazamientos espaciales en los límites vecinales al realizar el cruce[cite: 7].
     * **Casos Rurales o Periféricos:** Establecimientos rurales específicos o ubicados en parajes y asentamientos alejados se evalúan según su coordenada precisa frente al polígono correspondiente[cite: 6, 7].
     """)
-
-<FollowUp>
-* ¿Pudiste probar el código actualizado en Streamlit y verificar que se corrijan las alertas de los barrios sin oferta?
-</FollowUp>

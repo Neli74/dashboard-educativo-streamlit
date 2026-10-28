@@ -126,4 +126,72 @@ modalidades_unicas = [
     "Artística", 
     "Rural", 
     "Jóvenes y Adultos (EPJA)",
-    "Contexto de Encierro
+    "Contexto de Encierro", 
+    "Bilingüe"
+]
+modalidades_presentes = [m for m in modalidades_unicas if m in df_escuelas["Modalidad_Display"].values]
+
+modalidades_sel = st.sidebar.multiselect(
+    "Filtrar por Modalidad:",
+    options=modalidades_presentes,
+    default=modalidades_presentes
+)
+
+# Aplicación progresiva de filtros
+df_filtrado = df_escuelas.copy()
+
+if barrios_sel:
+    df_filtrado = df_filtrado[df_filtrado["BARRIOS_CORREGIDO"].isin(barrios_sel)]
+
+if niveles_sel:
+    cols_niveles_activas = [col for col, nom in mapa_niveles.items() if nom in niveles_sel and col in df_filtrado.columns]
+    if cols_niveles_activas:
+        df_filtrado = df_filtrado[df_filtrado[cols_niveles_activas].sum(axis=1) > 0]
+
+if modalidades_sel:
+    df_filtrado = df_filtrado[df_filtrado["Modalidad_Display"].isin(modalidades_sel)]
+
+# Recálculo dinámico de barrios sin oferta según los filtros aplicados
+escuelas_geo_filtrada = df_filtrado.dropna(subset=["LATITUD", "LONGITUD"]).copy()
+if not escuelas_geo_filtrada.empty:
+    gdf_pts_filtro = gpd.GeoDataFrame(
+        escuelas_geo_filtrada,
+        geometry=gpd.points_from_xy(escuelas_geo_filtrada["LONGITUD"], escuelas_geo_filtrada["LATITUD"]),
+        crs="EPSG:4326"
+    )
+    cruce_filtro = gdf_barrios.sjoin(gdf_pts_filtro, how="left", predicate="contains")
+    barrios_con_oferta_filtro = cruce_filtro.dropna(subset=["index_right"])["NOMBRE_BARRIO_SHP"].unique()
+    nombres_sin_oferta_dinamico = [b for b in gdf_barrios["NOMBRE_BARRIO_SHP"].unique() if b not in barrios_con_oferta_filtro]
+else:
+    nombres_sin_oferta_dinamico = gdf_barrios["NOMBRE_BARRIO_SHP"].unique().tolist()
+
+total_sin_oferta_dinamico = len(nombres_sin_oferta_dinamico)
+gdf_barrios_sin_escuelas = gdf_barrios[gdf_barrios["NOMBRE_BARRIO_SHP"].isin(nombres_sin_oferta_dinamico)].copy()
+
+# 3. Encabezado y KPIs
+st.title("Establecimientos Educativos en Corrientes - INDEC vs Oferta")
+
+k1, k2, k3, k4, k5 = st.columns(5)
+k1.metric("Establecimientos Filtrados", len(df_filtrado))
+k2.metric("Población Escolarizada", "161.863")
+k3.metric("Mayor Demanda", "Secundaria (50.204)")
+if not df_filtrado.empty:
+    top_b = df_filtrado["BARRIOS_CORREGIDO"].value_counts().index[0]
+    top_c = df_filtrado["BARRIOS_CORREGIDO"].value_counts().iloc[0]
+    k4.metric("Mayor concentración", f"{top_b} ({top_c})")
+else:
+    k4.metric("Mayor concentración", "Sin datos")
+k5.metric("Barrios sin Oferta", total_sin_oferta_dinamico, help="Barrios catastrales sin oferta según los filtros activos")
+
+st.markdown("---")
+
+# 4. Sección de Mapa y Gráficos
+col_mapa, col_grafico = st.columns([1.1, 0.9])
+
+with col_mapa:
+    st.subheader("Distribución Territorial de Escuelas")
+    
+    c_capas1, c_capas2, c_capas3, c_capas4 = st.columns(4)
+    ver_barrios = c_capas1.checkbox("Límites de Barrios", value=True)
+    ver_sin_oferta = c_capas2.checkbox("Destacar Sin Oferta", value=True)
+    ver_esc

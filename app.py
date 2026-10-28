@@ -248,10 +248,14 @@ with col_mapa:
 
     traza_cls = getattr(go, "Scattermap", getattr(go, "Scattermapbox", None))
 
-    # 1. Límites generales de barrios
+    # --- OPTIMIZACIÓN 1: Límites generales de barrios simplificados ---
     if ver_barrios and traza_cls:
         lats_barrios, lons_barrios = [], []
-        for geom in gdf_barrios.geometry:
+        # Simplificamos la geometría para acelerar el renderizado web (tolerance en grados)
+        gdf_barrios_simp = gdf_barrios.copy()
+        gdf_barrios_simp["geometry"] = gdf_barrios_simp["geometry"].simplify(tolerance=0.0001, preserve_topology=True)
+        
+        for geom in gdf_barrios_simp.geometry:
             if geom is None:
                 continue
             if geom.geom_type == "Polygon":
@@ -275,37 +279,37 @@ with col_mapa:
             )
         )
 
-    # 2. Polígonos de barrios sin oferta
+    # --- OPTIMIZACIÓN 2: Polígonos de barrios sin oferta optimizados ---
     if ver_sin_oferta and not gdf_barrios_sin_escuelas.empty and traza_cls:
-        primera_traza = True
-        for _, fila in gdf_barrios_sin_escuelas.iterrows():
+        gdf_sin_simp = gdf_barrios_sin_escuelas.copy()
+        gdf_sin_simp["geometry"] = gdf_sin_simp["geometry"].simplify(tolerance=0.0001, preserve_topology=True)
+        
+        lats_sin, lons_sin, textos_sin = [], [], []
+        for _, fila in gdf_sin_simp.iterrows():
             geom = fila.geometry
             nom = fila["NOMBRE_BARRIO_SHP"]
             if geom is None:
                 continue
-            
             poligonos = [geom] if geom.geom_type == "Polygon" else list(geom.geoms)
             for poly in poligonos:
                 x, y = poly.exterior.xy
-                l_x = list(x)
-                l_y = list(y)
-                texto_hover = [f"<b>Barrio sin oferta escolar:</b><br>{nom}"] * len(l_y)
-                
-                fig_mapa.add_trace(
-                    traza_cls(
-                        lat=l_y,
-                        lon=l_x,
-                        mode="lines",
-                        fill="toself",
-                        fillcolor="rgba(231, 76, 60, 0.35)",
-                        line=dict(width=2, color="#C0392B"),
-                        name="Sin Oferta Escolar" if primera_traza else None,
-                        showlegend=primera_traza,
-                        hoverinfo="text",
-                        text=texto_hover
-                    )
-                )
-                primera_traza = False
+                lons_sin.extend(x.tolist() + [None])
+                lats_sin.extend(y.tolist() + [None])
+                textos_sin.extend([f"<b>Barrio sin oferta escolar:</b><br>{nom}"] * (len(x) + 1))
+
+        fig_mapa.add_trace(
+            traza_cls(
+                lat=lats_sin,
+                lon=lons_sin,
+                mode="lines",
+                fill="toself",
+                fillcolor="rgba(231, 76, 60, 0.35)",
+                line=dict(width=2, color="#C0392B"),
+                name="Sin Oferta Escolar",
+                hoverinfo="text",
+                text=textos_sin
+            )
+        )
 
     fig_mapa.update_layout(
         margin=dict(l=0, r=0, t=10, b=10),
@@ -320,30 +324,6 @@ with col_mapa:
         selection_mode="points",
         key="mapa_interactivo"
     )
-
-with col_grafico:
-    st.subheader("Top 15: Distribución de Escuelas por Barrio (Capital)")
-    
-    top_barrios = df_filtrado["BARRIOS_CORREGIDO"].value_counts().head(15).reset_index()
-    top_barrios.columns = ["Barrio", "Cantidad_Escuelas"]
-    
-    fig_barras = px.bar(
-        top_barrios,
-        x="Cantidad_Escuelas",
-        y="Barrio",
-        orientation="h",
-        text_auto=True,
-        color_discrete_sequence=["#27AE60"]
-    )
-    fig_barras.update_layout(
-        yaxis=dict(autorange="reversed"),
-        margin=dict(l=0, r=10, t=10, b=10),
-        xaxis_title="Cantidad de Escuelas",
-        yaxis_title="",
-        height=520
-    )
-    st.plotly_chart(fig_barras, use_container_width=True)
-
 st.markdown("---")
 
 # 5. Fila Inferior: Demanda INDEC vs Oferta y Proporción

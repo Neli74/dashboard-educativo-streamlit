@@ -137,11 +137,8 @@ modalidades_sel = st.sidebar.multiselect(
     default=modalidades_presentes
 )
 
-# Aplicación progresiva de filtros
+# Aplicación progresiva de filtros para el mapa y las escuelas
 df_filtrado = df_escuelas.copy()
-
-if barrios_sel:
-    df_filtrado = df_filtrado[df_filtrado["BARRIOS_CORREGIDO"].isin(barrios_sel)]
 
 if niveles_sel:
     cols_niveles_activas = [col for col, nom in mapa_niveles.items() if nom in niveles_sel and col in df_filtrado.columns]
@@ -151,7 +148,7 @@ if niveles_sel:
 if modalidades_sel:
     df_filtrado = df_filtrado[df_filtrado["Modalidad_Display"].isin(modalidades_sel)]
 
-# Recálculo dinámico de barrios sin oferta según los filtros aplicados
+# Recálculo dinámico de barrios sin oferta según Nivel y Modalidad (independiente del zoom del barrio)
 escuelas_geo_filtrada = df_filtrado.dropna(subset=["LATITUD", "LONGITUD"]).copy()
 if not escuelas_geo_filtrada.empty:
     gdf_pts_filtro = gpd.GeoDataFrame(
@@ -167,6 +164,10 @@ else:
 
 total_sin_oferta_dinamico = len(nombres_sin_oferta_dinamico)
 gdf_barrios_sin_escuelas = gdf_barrios[gdf_barrios["NOMBRE_BARRIO_SHP"].isin(nombres_sin_oferta_dinamico)].copy()
+
+# Aplicar filtro de barrio seleccionado para la vista y las tablas
+if barrios_sel:
+    df_filtrado = df_filtrado[df_filtrado["BARRIOS_CORREGIDO"].isin(barrios_sel)]
 
 # 3. Encabezado y KPIs
 st.title("Establecimientos Educativos en Corrientes - INDEC vs Oferta")
@@ -413,7 +414,7 @@ st.markdown("---")
 with st.expander("📚 Metodología, Fuentes y Limitaciones del Tablero"):
     st.markdown("""
     ### 1. Fuentes y Fechas de Datos
-    * **Padrón de Establecimientos:** Portal de Datos Abiertos de la Municipalidad de Corrientes (Dataset de Establecimientos Educativos). Del total de registros, se procesaron **332 establecimientos válidos** tras excluir formación profesional, talleres artísticos y servicios complementarios.
+    * **Padrón de Establecimientos:** Portal de Datos Abiertos de la Municipalidad de Corrientes (Dataset de Establecimientos Educativos). **Última actualización registrada en 2025 (frecuencia de actualización anual)**. Del total de registros, se procesaron **332 establecimientos válidos** tras excluir formación profesional, talleres artísticos y servicios complementarios.
     * **Población y Demanda (INDEC):** Censo Nacional de Población, Hogares y Viviendas 2022, INDEC (Cuadro 2.7.3 - Provincia de Corrientes, departamento Capital). Corresponde a la población en viviendas particulares que asiste a algún establecimiento educativo, abierta por nivel.
     * **Geometrías:** Capas vectoriales de polígonos de barrios provistas por la Municipalidad de Corrientes.
 
@@ -431,4 +432,3 @@ with st.expander("📚 Metodología, Fuentes y Limitaciones del Tablero"):
     * **Coordenadas:** El 82% de los establecimientos en el padrón oficial poseen ubicación marcada como "aproximada", lo cual puede generar leves desplazamientos espaciales en los límites vecinales al realizar el cruce.
     * **Casos Rurales o Periféricos:** Establecimientos rurales específicos o ubicados en parajes y asentamientos alejados se evalúan según su coordenada precisa frente al polígono correspondiente.
     """)
-                            

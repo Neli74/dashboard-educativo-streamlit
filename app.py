@@ -432,3 +432,5 @@ with st.expander("📚 Metodología, Fuentes y Limitaciones del Tablero"):
     * **Coordenadas:** El 82% de los establecimientos en el padrón oficial poseen ubicación marcada como "aproximada", lo cual puede generar leves desplazamientos espaciales en los límites vecinales al realizar el cruce.
     * **Casos Rurales o Periféricos:** Establecimientos rurales específicos o ubicados en parajes y asentamientos alejados se evalúan según su coordenada precisa frente al polígono correspondiente.
     """)
+
+* **Desfase Temporal (INDEC 2022 vs. Padrón 2025):** Se cruzan datos de demanda poblacional correspondientes al Censo Nacional 2022 con un padrón de oferta educativa actualizado a 2025. Esto implica que la foto demográfica y la infraestructura escolar no corresponden estrictamente al mismo año calendario, lo cual debe considerarse al analizar ratios de cobertura en zonas de rápida expansión urbana.

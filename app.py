@@ -413,4 +413,23 @@ with col_dona:
 st.markdown("---")
 with st.expander("📚 Metodología, Fuentes y Limitaciones del Tablero"):
     st.markdown("""
-    ### 1
+    ### 1. Fuentes y Fechas de Datos
+    * **Padrón de Establecimientos:** Portal de Datos Abiertos de la Municipalidad de Corrientes (Dataset de Establecimientos Educativos). Última actualización registrada en 2025 (frecuencia de actualización anual). Del total de registros, se procesaron **332 establecimientos válidos** tras excluir formación profesional, talleres artísticos y servicios complementarios.
+    * **Población y Demanda (INDEC):** Censo Nacional de Población, Hogares y Viviendas 2022, INDEC (Cuadro 2.7.3 - Provincia de Corrientes, departamento Capital). Corresponde a la población en viviendas particulares que asiste a algún establecimiento educativo, abierta por nivel.
+    * **Geometrías:** Capas vectoriales de polígonos de barrios provistas por la Municipalidad de Corrientes.
+
+    ### 2. Supuestos y Criterios Metodológicos
+    * **Conteo por Nivel:** Se utiliza el criterio de *"establecimientos que ofrecen el nivel"*, permitiendo contar adecuadamente los edificios que albergan más de un nivel educativo (por ejemplo, escuelas con anexo de jardín) sin sumarlos de forma excluyente.
+    * **Tramos Etarios / Niveles:** 
+      * *Materna / CDI:* 0 a 3 años (7.321 asistencias).
+      * *Inicial:* Salas 4 y 5 (11.116 asistencias).
+      * *Primaria:* (46.040 asistencias).
+      * *Secundaria:* (50.204 asistencias).
+      * *Superior / Terciario:* (16.331 asistencias).
+    * **Alcance Demográfico:** Los datos de población escolarizada del INDEC corresponden al total del departamento Capital y actúan como referencia general del tablero.
+
+    ### 3. Límites del Tablero
+    * **Coordenadas:** El 82% de los establecimientos en el padrón oficial poseen ubicación marcada como "aproximada", lo cual puede generar leves desplazamientos espaciales en los límites vecinales al realizar el cruce.
+    * **Casos Rurales o Periféricos:** Establecimientos rurales específicos o ubicados en parajes y asentamientos alejados se evalúan según su coordenada precisa frente al polígono correspondiente.
+    * **Desfase Temporal (INDEC 2022 vs. Padrón 2025):** Se cruzan datos de demanda poblacional del Censo Nacional 2022 con un padrón de oferta educativa actualizado a 2025. Esto implica que la foto demográfica y la infraestructura escolar no corresponden estrictamente al mismo año calendario, lo cual debe considerarse al analizar ratios de cobertura en zonas de expansión urbana.
+    """)

@@ -238,7 +238,7 @@ def cargar_datos(
     df_esc = pd.read_excel(ruta_excel)
     df_esc.columns = [str(col).strip() for col in df_esc.columns]
 
-    # FILTRADO RADICAL: Eliminar todo lo que no sea educación formal (elimina los 33 no formales)
+    # FILTRADO RADICAL: Excluir educación no formal y conservar solo los 332 formales
     cols_niveles_formales = list(MAPA_NIVELES.keys())
     cols_presentes = [c for c in cols_niveles_formales if c in df_esc.columns]
     if cols_presentes:
@@ -525,43 +525,18 @@ k5.metric(
 
 st.markdown("---")
 
-
 # -----------------------------------------------------------------------------
-# Desplegable localizador rápido de establecimiento (sobre escuelas filtradas y válidas)
+# Coordenadas de enfoque del mapa (manejadas de forma limpia mediante filtros)
 # -----------------------------------------------------------------------------
-with st.container():
-    st.markdown("##### 📍 Localizador y marcador de establecimiento en mapa")
-    
-    df_escuelas_con_coords = df_filtrado.copy()
-    df_escuelas_con_coords["LAT_NUM"] = pd.to_numeric(df_escuelas_con_coords["LATITUD"], errors="coerce")
-    df_escuelas_con_coords["LON_NUM"] = pd.to_numeric(df_escuelas_con_coords["LONGITUD"], errors="coerce")
-    df_validas_mapa = df_escuelas_con_coords.dropna(subset=["LAT_NUM", "LON_NUM"])
-    
-    nombres_escuelas_disponibles = sorted(df_validas_mapa["NOMBRE_DISPLAY"].dropna().unique().tolist())
-    escuela_seleccionada = st.selectbox(
-        "Seleccioná una escuela para enfocarla y marcarla con un punto destacado en el mapa:",
-        options=["-- Seleccionar establecimiento --"] + nombres_escuelas_disponibles,
-        key="selector_zoom_escuela"
-    )
-
 centro = dict(CENTRO_CORRIENTES)
 zoom_val = ZOOM_INICIAL
-df_escuela_foco = pd.DataFrame()
 
-if escuela_seleccionada and escuela_seleccionada != "-- Seleccionar establecimiento --":
-    df_escuela_foco = df_validas_mapa[df_validas_mapa["NOMBRE_DISPLAY"] == escuela_seleccionada]
-    if not df_escuela_foco.empty:
-        lat_esc = pd.to_numeric(df_escuela_foco.iloc[0]["LATITUD"], errors="coerce")
-        lon_esc = pd.to_numeric(df_escuela_foco.iloc[0]["LONGITUD"], errors="coerce")
-        if pd.notna(lat_esc) and pd.notna(lon_esc) and -90 <= lat_esc <= 90 and -180 <= lon_esc <= 180:
-            centro = {"lat": float(lat_esc), "lon": float(lon_esc)}
-            zoom_val = 16.0
-elif barrios_sel and not df_filtrado.empty:
-    df_puntos_zoom = df_validas_mapa.dropna(subset=["LATITUD", "LONGITUD"])
+if barrios_sel and not df_filtrado.empty:
+    df_puntos_zoom = df_filtrado.dropna(subset=["LATITUD", "LONGITUD"])
     if not df_puntos_zoom.empty:
         centro = {
-            "lat": float(df_puntos_zoom["LAT_NUM"].mean()),
-            "lon": float(df_puntos_zoom["LON_NUM"].mean()),
+            "lat": float(df_puntos_zoom["LATITUD"].mean()),
+            "lon": float(df_puntos_zoom["LONGITUD"].mean()),
         }
         zoom_val = 12.8 if len(barrios_sel) > 1 else 13.5
 
@@ -666,28 +641,6 @@ with col_mapa:
     clase_traza_mapa = getattr(go, "Scattermap", None)
     if clase_traza_mapa is None:
         clase_traza_mapa = getattr(go, "Scattermapbox", None)
-
-    # Marcador en foco blindado contra errores de tipo numérico
-    if not df_escuela_foco.empty and clase_traza_mapa is not None:
-        fila_foco = df_escuela_foco.iloc[0]
-        lat_foco = pd.to_numeric(fila_foco.get("LATITUD"), errors="coerce")
-        lon_foco = pd.to_numeric(fila_foco.get("LONGITUD"), errors="coerce")
-        if pd.notna(lat_foco) and pd.notna(lon_foco) and -90 <= lat_foco <= 90 and -180 <= lon_foco <= 180:
-            fig_mapa.add_trace(
-                clase_traza_mapa(
-                    lat=[float(lat_foco)],
-                    lon=[float(lon_foco)],
-                    mode="markers",
-                    marker=dict(
-                        size=16,
-                        color="#F1C40F",
-                        symbol="circle",
-                        line=dict(width=3, color="#FFFFFF")
-                    ),
-                    name=f"Foco: {fila_foco['NOMBRE_DISPLAY']}",
-                    hovertemplate=f"<b>📍 ESTABLECIMIENTO SELECCIONADO</b><br>{fila_foco['NOMBRE_DISPLAY']}<br>Barrio: {fila_foco['BARRIOS_CORREGIDO']}<extra></extra>"
-                )
-            )
 
     if ver_barrios and clase_traza_mapa is not None:
         longitudes_limites = []

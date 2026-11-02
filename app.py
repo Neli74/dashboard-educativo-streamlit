@@ -225,7 +225,7 @@ def obtener_geometrias_barrios(ruta_geojson: str) -> gpd.GeoDataFrame:
 
 
 # -----------------------------------------------------------------------------
-# Carga de datos
+# Carga de datos con filtrado estricto de niveles formales (332 registros)
 # -----------------------------------------------------------------------------
 @st.cache_data(show_spinner="Preparando establecimientos y límites barriales...")
 def cargar_datos(
@@ -238,6 +238,16 @@ def cargar_datos(
 
     df_esc = pd.read_excel(ruta_excel)
     df_esc.columns = [str(col).strip() for col in df_esc.columns]
+
+    # FILTRADO ESTRICTO: Descartar registros que no tengan ningún nivel formal activo (los 33 excluidos)
+    cols_niveles_formales = ["N. SECUNDARIO", "N. PRIMARIO", "N.INICIAL", "N. SUPERIOR", "N. ED. TERMPRANA"]
+    cols_presentes = [c for c in cols_niveles_formales if c in df_esc.columns]
+    if cols_presentes:
+        mascara_formales = pd.Series(False, index=df_esc.index)
+        for col in cols_presentes:
+            mascara_formales |= es_uno(df_esc[col])
+        df_esc = df_esc[mascara_formales].copy()
+
     df_esc = df_esc.reset_index(drop=True)
     df_esc["_row_id"] = range(len(df_esc))
 
@@ -418,7 +428,7 @@ niveles_validos = [
 ]
 nombres_niveles_disponibles = [etiqueta for _, etiqueta in niveles_validos]
 
-# ¡MODIFICADO AQUÍ! default=[] para que aparezcan vacíos y se vayan sumando de a uno
+# Inician vacíos por defecto (default=[])
 niveles_sel = st.sidebar.multiselect(
     "Filtrar por niveles:",
     options=nombres_niveles_disponibles,
@@ -442,7 +452,7 @@ modalidades_presentes = [
     if modalidad in set(df_escuelas["Modalidad_Display"].dropna().astype(str))
 ]
 
-# ¡MODIFICADO AQUÍ! default=[] para que también inicie vacío
+# Inician vacíos por defecto (default=[])
 modalidades_sel = st.sidebar.multiselect(
     "Filtrar por modalidad:",
     options=modalidades_presentes,
@@ -549,7 +559,7 @@ st.markdown("---")
 
 
 # -----------------------------------------------------------------------------
-# Buscador rápido de ubicación de escuelas para hacer zoom en el mapa
+# Localizador rápido de establecimiento para hacer zoom en el mapa
 # -----------------------------------------------------------------------------
 with st.container():
     st.markdown("##### 📍 Localizador rápido de establecimiento")
@@ -886,7 +896,7 @@ with st.expander("📚 Metodología, fuentes y limitaciones del tablero"):
     st.markdown(
         """
 ### 1. Fuentes y fechas de datos
-- **Padrón de establecimientos:** Portal de Datos Abiertos de la Municipalidad de Corrientes (dataset de establecimientos educativos). Última actualización registrada en 2025 (frecuencia de actualización anual). Del total de registros, se procesaron **332 establecimientos válidos** tras excluir formación profesional, talleres artísticos y servicios complementarios.
+- **Padrón de establecimientos:** Portal de Datos Abiertos de la Municipalidad de Corrientes (dataset de establecimientos educativos). Última actualización registrada en 2025 (frecuencia de actualización anual). Del total de registros del padrón bruto, se depuraron y procesaron estrictamente **332 establecimientos educativos formales válidos**, descartando servicios complementarios no formales o sin oferta en los niveles principales.
 - **Población y demanda (INDEC):** Censo Nacional de Población, Hogares y Viviendas 2022, INDEC (Cuadro 2.7.3 - Provincia de Corrientes, departamento Capital). Corresponde a la población en viviendas particulares que asiste a algún establecimiento educativo, abierta por nivel.
 - **Geometrías:** límites barriales de la Municipalidad de Corrientes, incorporados desde el archivo GeoJSON `BarriosCorrientes.geojson`. Las piezas con el mismo nombre se reúnen para representar cada barrio como una unidad cartográfica.
 
@@ -902,7 +912,7 @@ with st.expander("📚 Metodología, fuentes y limitaciones del tablero"):
 - **Barrios sin oferta dinámicos:** se identifican mediante una relación espacial vectorial (*Spatial Join*) entre las coordenadas de los establecimientos filtrados y los polígonos barriales. Cuando el usuario selecciona un nivel específico (ej. Secundaria), el contador suma de forma estricta los barrios que carecen de establecimientos habilitados para dicho nivel.
 
 ### 3. Límites del tablero
-- **Coordenadas:** el 82% de los establecimientos en el padrón oficial poseen ubicación marcada como "aproximada", lo cual puede generar leves desplazamientos espaciales en los límites vecinales al realizar el cruce.
+- **Coordenadas:** el 82% de los establecimientos en el padrón oficial poseen ubicación marcada como "aproximada", la cual puede generar leves desplazamientos espaciales en los límites vecinales al realizar el cruce.
 - **Casos rurales o periféricos:** establecimientos rurales específicos o ubicados en parajes y asentamientos alejados se evalúan según su coordenada frente al polígono correspondiente.
 - **Desfase temporal (INDEC 2022 vs. padrón 2025):** se cruzan datos de demanda poblacional del Censo Nacional 2022 con un padrón de oferta educativa actualizado a 2025. Esto implica que la foto demográfica y la infraestructura escolar no corresponden estrictamente al mismo año calendario, lo cual debe considerarse al analizar ratios de cobertura en zonas de expansión urbana.
 """

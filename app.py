@@ -27,7 +27,6 @@ ARCHIVO_BARRIOS = BASE_DIR / "BarriosCorrientes.geojson"
 CENTRO_CORRIENTES = {"lat": -27.4692, "lon": -58.8306}
 ZOOM_INICIAL = 11.5
 
-# Se conserva el orden de prioridad que tenía la clasificación original.
 MAPA_NIVELES = {
     "N. SECUNDARIO": "Secundaria",
     "N. PRIMARIO": "Primaria",
@@ -44,13 +43,9 @@ MAPA_MODALIDADES = {
     "M. ARTISTICA": "Artística",
     "M. RURAL": "Rural",
     "M. BILINGÜE": "Bilingüe",
-    # La base ESCUELAS_DEFINITIVA.xlsx también contiene esta bandera.
-    # Se incorpora para que el tooltip muestre todas las modalidades activas.
     "M. COMUN": "Común",
 }
 
-# Paleta oscura con acentos celestes y azules; los colores se mantienen estables
-# aunque los filtros oculten alguna categoría.
 COLORES_NIVELES = {
     "Secundaria": "#56CCF2",
     "Primaria": "#2D9CDB",
@@ -69,19 +64,27 @@ COLORES_MODALIDADES = {
     "Jóvenes y Adultos (EPJA)": "#F2994A",
     "Contexto de Encierro": "#EB5757",
     "Bilingüe": "#BB6BD9",
-    "Sin especificar": "#A0AEC0",
 }
 
 COLOR_TEXTO = "#EAF2FF"
 COLOR_CELESTE = "#56CCF2"
 COLOR_SIN_OFERTA = "#EF4444"
 
+# Población INDEC 2022 de referencia global y por nivel
+POBLACION_INDEC_TOTAL = "161.863"
+POBLACION_INDEC_NIVELES = {
+    "Educación Temprana / CDI": {"valor": 7321, "texto": "7.321 (Materna 0 a 3)"},
+    "Inicial": {"valor": 11116, "texto": "11.116 (Salas 4 y 5)"},
+    "Primaria": {"valor": 46040, "texto": "46.040"},
+    "Secundaria": {"valor": 50204, "texto": "50.204"},
+    "Superior": {"valor": 16331, "texto": "16.331"},
+}
+
 
 # -----------------------------------------------------------------------------
 # Funciones auxiliares de preparación
 # -----------------------------------------------------------------------------
 def resolver_columna(df: pd.DataFrame, nombres: Iterable[str], obligatoria: bool = False):
-    """Busca una columna sin distinguir mayúsculas/minúsculas ni espacios externos."""
     equivalencias = {str(col).strip().casefold(): col for col in df.columns}
     for nombre in nombres:
         encontrada = equivalencias.get(str(nombre).strip().casefold())
@@ -96,7 +99,6 @@ def resolver_columna(df: pd.DataFrame, nombres: Iterable[str], obligatoria: bool
 
 
 def es_uno(serie: pd.Series) -> pd.Series:
-    """Interpreta como activo el valor 1, True o una respuesta afirmativa."""
     numerica = pd.to_numeric(serie, errors="coerce").eq(1)
     texto = serie.astype("string").str.strip().str.casefold()
     afirmativos = texto.isin(["true", "sí", "si", "yes", "y"])
@@ -104,7 +106,6 @@ def es_uno(serie: pd.Series) -> pd.Series:
 
 
 def formatear_identificador(valor) -> str:
-    """Evita mostrar un CUE entero como número decimal terminado en .0."""
     if pd.isna(valor):
         return "No informado"
     if isinstance(valor, float) and valor.is_integer():
@@ -115,7 +116,6 @@ def formatear_identificador(valor) -> str:
 
 
 def lista_de_flags(df: pd.DataFrame, mapa: dict[str, str], alternativa: str) -> pd.Series:
-    """Construye una lista legible con todas las banderas activas de cada registro."""
     disponibles = [(col, etiqueta) for col, etiqueta in mapa.items() if col in df.columns]
     if not disponibles:
         return pd.Series(alternativa, index=df.index, dtype="string")
@@ -133,7 +133,6 @@ def lista_de_flags(df: pd.DataFrame, mapa: dict[str, str], alternativa: str) -> 
 
 
 def clasificar_nivel_original(df: pd.DataFrame) -> pd.Series:
-    """Clasificación principal del código original, vectorizada y sin apply por fila."""
     resultado = pd.Series("Otro / Especial", index=df.index, dtype="string")
     for columna, etiqueta in reversed(list(MAPA_NIVELES.items())):
         if columna in df.columns:
@@ -142,8 +141,7 @@ def clasificar_nivel_original(df: pd.DataFrame) -> pd.Series:
 
 
 def clasificar_modalidad_original(df: pd.DataFrame) -> pd.Series:
-    """Mantiene una categoría principal y no presume modalidad si no hay banderas."""
-    resultado = pd.Series("Sin especificar", index=df.index, dtype="string")
+    resultado = pd.Series("Común", index=df.index, dtype="string")
     for columna, etiqueta in reversed(list(MAPA_MODALIDADES.items())):
         if columna in df.columns:
             resultado.loc[es_uno(df[columna])] = etiqueta
@@ -151,7 +149,6 @@ def clasificar_modalidad_original(df: pd.DataFrame) -> pd.Series:
 
 
 def extraer_poligonos(geometria) -> list[Polygon]:
-    """Obtiene solo componentes poligonales, incluso si make_valid devuelve colecciones."""
     if geometria is None or geometria.is_empty:
         return []
     if isinstance(geometria, Polygon):
@@ -167,7 +164,6 @@ def extraer_poligonos(geometria) -> list[Polygon]:
 
 
 def normalizar_geometrias(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    """Repara geometrías si hiciera falta y descarta superficies vacías."""
     geometrias = []
     for geometria in gdf.geometry:
         if geometria is None or geometria.is_empty:
@@ -195,10 +191,8 @@ def normalizar_geometrias(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 
 
 def obtener_geometrias_barrios(ruta_geojson: str) -> gpd.GeoDataFrame:
-    """Lee el GeoJSON, usa NAM como nombre y une piezas con el mismo nombre."""
     barrios = gpd.read_file(ruta_geojson)
     if barrios.crs is None:
-        # GeoJSON en coordenadas longitud/latitud (CRS84/WGS84).
         barrios = barrios.set_crs("EPSG:4326")
     elif barrios.crs.to_epsg() != 4326:
         barrios = barrios.to_crs("EPSG:4326")
@@ -221,8 +215,6 @@ def obtener_geometrias_barrios(ruta_geojson: str) -> gpd.GeoDataFrame:
     if barrios.empty:
         raise ValueError("El GeoJSON no contiene polígonos barriales válidos.")
 
-    # COLLANTES y MOLINA PUNTA aparecen en más de una pieza del mismo nombre.
-    # Dissolve las reúne en un único barrio sin perder ninguna superficie.
     barrios = barrios.dissolve(
         by="NOMBRE_BARRIO_GEOJSON",
         as_index=False,
@@ -233,7 +225,7 @@ def obtener_geometrias_barrios(ruta_geojson: str) -> gpd.GeoDataFrame:
 
 
 # -----------------------------------------------------------------------------
-# Carga de datos: se ejecuta una vez por versión de los archivos y queda en caché
+# Carga de datos
 # -----------------------------------------------------------------------------
 @st.cache_data(show_spinner="Preparando establecimientos y límites barriales...")
 def cargar_datos(
@@ -242,7 +234,6 @@ def cargar_datos(
     ruta_geojson: str,
     marca_geojson: tuple[int, int],
 ):
-    # Los valores marca_* fuerzan la renovación de caché cuando cambia un archivo.
     _ = marca_excel, marca_geojson
 
     df_esc = pd.read_excel(ruta_excel)
@@ -250,7 +241,6 @@ def cargar_datos(
     df_esc = df_esc.reset_index(drop=True)
     df_esc["_row_id"] = range(len(df_esc))
 
-    # Normalizar nombres de columnas usadas por el mapa.
     col_barrio = resolver_columna(df_esc, ["BARRIOS_CORREGIDO"], obligatoria=True)
     col_latitud = resolver_columna(df_esc, ["LATITUD", "LATITUDE"], obligatoria=True)
     col_longitud = resolver_columna(df_esc, ["LONGITUD", "LONGITUDE", "LON"], obligatoria=True)
@@ -275,11 +265,9 @@ def cargar_datos(
         else "No informado"
     )
 
-    # Mantiene los criterios de clasificación de nivel y modalidad del original.
     df_esc["Nivel_Oferta"] = clasificar_nivel_original(df_esc)
     df_esc["Modalidad_Display"] = clasificar_modalidad_original(df_esc)
 
-    # Listas completas para el tooltip: no dependen de los filtros activos.
     df_esc["Niveles_Disponibles"] = lista_de_flags(
         df_esc, MAPA_NIVELES, "No especificado"
     )
@@ -287,8 +275,6 @@ def cargar_datos(
         df_esc, MAPA_MODALIDADES, "Sin especificar"
     )
 
-    # GeoJSON municipal: reparación defensiva, disolución por nombre y simplificación
-    # una sola vez, no en cada interacción del usuario.
     gdf_barrios = obtener_geometrias_barrios(ruta_geojson)
     gdf_barrios_plot = gdf_barrios.copy()
     gdf_barrios_plot["geometry"] = gdf_barrios_plot.geometry.simplify(
@@ -296,7 +282,6 @@ def cargar_datos(
         preserve_topology=True,
     )
 
-    # Unión espacial de todos los puntos con los barrios UNA sola vez.
     puntos_validos = df_esc[
         df_esc["LATITUD"].between(-90, 90)
         & df_esc["LONGITUD"].between(-180, 180)
@@ -327,7 +312,6 @@ def cargar_datos(
                 int(indice): nombres for indice, nombres in agrupado.items()
             }
 
-    # Se conserva la tabla de demanda INDEC y las cifras de la versión original.
     totales_nivel = {}
     for columna, etiqueta in MAPA_NIVELES.items():
         totales_nivel[etiqueta] = (
@@ -407,9 +391,16 @@ except Exception as error:
 
 
 # -----------------------------------------------------------------------------
-# 1. Filtros laterales
+# 1. Filtros laterales mejorados (multiselect vacíos por defecto + buscador)
 # -----------------------------------------------------------------------------
 st.sidebar.title("Filtros del tablero")
+
+# Buscador de texto libre por Nombre o CUE
+texto_busqueda = st.sidebar.text_input(
+    "🔍 Buscar por Nombre o CUE:",
+    value="",
+    placeholder="Ej: Manuel Belgrano o 180..."
+)
 
 barrios_disponibles = sorted(
     df_escuelas["BARRIOS_CORREGIDO"].dropna().astype(str).unique().tolist()
@@ -426,10 +417,13 @@ niveles_validos = [
     if columna in df_escuelas.columns
 ]
 nombres_niveles_disponibles = [etiqueta for _, etiqueta in niveles_validos]
+
+# ¡MODIFICADO AQUÍ! default=[] para que aparezcan vacíos y se vayan sumando de a uno
 niveles_sel = st.sidebar.multiselect(
     "Filtrar por niveles:",
     options=nombres_niveles_disponibles,
-    default=nombres_niveles_disponibles,
+    default=[],
+    placeholder="Seleccionar uno o más niveles...",
 )
 
 orden_modalidades = [
@@ -441,21 +435,36 @@ orden_modalidades = [
     "Jóvenes y Adultos (EPJA)",
     "Contexto de Encierro",
     "Bilingüe",
-    "Sin especificar",
 ]
 modalidades_presentes = [
     modalidad
     for modalidad in orden_modalidades
     if modalidad in set(df_escuelas["Modalidad_Display"].dropna().astype(str))
 ]
+
+# ¡MODIFICADO AQUÍ! default=[] para que también inicie vacío
 modalidades_sel = st.sidebar.multiselect(
     "Filtrar por modalidad:",
     options=modalidades_presentes,
-    default=modalidades_presentes,
+    default=[],
+    placeholder="Seleccionar modalidad(es)...",
 )
 
-# Filtros de nivel y modalidad para calcular la cobertura dinámica.
+# -----------------------------------------------------------------------------
+# Lógica de filtrado progresivo y cálculo de cobertura dinámica
+# -----------------------------------------------------------------------------
 df_nivel_modalidad = df_escuelas
+
+# 1. Aplicar filtro de búsqueda por texto (Nombre o CUE)
+if texto_busqueda.strip():
+    termino = texto_busqueda.strip().casefold()
+    mascara_texto = (
+        df_nivel_modalidad["NOMBRE_DISPLAY"].astype(str).str.casefold().str.contains(termino, na=False)
+        | df_nivel_modalidad["CUE_DISPLAY"].astype(str).str.casefold().str.contains(termino, na=False)
+    )
+    df_nivel_modalidad = df_nivel_modalidad[mascara_texto]
+
+# 2. Aplicar filtro de niveles (si hay seleccionados)
 if niveles_sel:
     mascara_niveles = pd.Series(False, index=df_nivel_modalidad.index)
     for columna, etiqueta in MAPA_NIVELES.items():
@@ -463,13 +472,13 @@ if niveles_sel:
             mascara_niveles |= es_uno(df_nivel_modalidad[columna])
     df_nivel_modalidad = df_nivel_modalidad[mascara_niveles]
 
+# 3. Aplicar filtro de modalidades (si hay seleccionadas)
 if modalidades_sel:
     df_nivel_modalidad = df_nivel_modalidad[
         df_nivel_modalidad["Modalidad_Display"].isin(modalidades_sel)
     ]
 
-# Recalcular barrios sin oferta sin repetir el cruce espacial: el mapa de relaciones
-# por registro ya fue calculado y quedó guardado en caché durante la carga.
+# Recalcular barrios sin oferta según los niveles y modalidades activos
 ids_filtrados = set(df_nivel_modalidad["_row_id"].astype(int).tolist())
 barrios_con_oferta = {
     barrio
@@ -483,7 +492,7 @@ gdf_barrios_sin_escuelas = gdf_barrios_plot[
     gdf_barrios_plot["NOMBRE_BARRIO_GEOJSON"].isin(nombres_sin_oferta_dinamico)
 ].copy()
 
-# El filtro de barrio se aplica después del cálculo anterior, igual que en el original.
+# 4. Aplicar filtro geográfico de barrio(s) seleccionado(s) para la vista y tablas
 df_filtrado = df_nivel_modalidad
 if barrios_sel:
     df_filtrado = df_filtrado[
@@ -493,13 +502,32 @@ df_filtrado = df_filtrado.copy()
 
 
 # -----------------------------------------------------------------------------
-# 2. Encabezado y KPI
+# 2. Encabezado y KPIs Dinámicos con Tooltip Metodológico
 # -----------------------------------------------------------------------------
 st.title("Establecimientos Educativos en Corrientes - INDEC vs Oferta")
 
+# Lógica para determinar el texto y valor de la Población Escolarizada según nivel activo
+if len(niveles_sel) == 1:
+    nivel_activo = niveles_sel[0]
+    poblacion_kpi = POBLACION_INDEC_NIVELES.get(nivel_activo, {}).get("texto", POBLACION_INDEC_TOTAL)
+    etiqueta_poblq = f"Población ({nivel_activo})"
+elif len(niveles_sel) > 1:
+    poblacion_kpi = "Múltiple"
+    etiqueta_poblq = "Población Escolarizada"
+else:
+    poblacion_kpi = POBLACION_INDEC_TOTAL
+    etiqueta_poblq = "Población Escolarizada"
+
 k1, k2, k3, k4, k5 = st.columns(5)
 k1.metric("Establecimientos filtrados", f"{len(df_filtrado):,}".replace(",", "."))
-k2.metric("Población escolarizada", "161.863")
+
+# KPI de población con indicador de ayuda / advertencia contextual
+k2.metric(
+    etiqueta_poblq,
+    poblacion_kpi,
+    help="⚠️ Dato correspondiente al Censo INDEC 2022 (departamento Capital). Nota metodológica: no se encuentra desagregado por barrio ni por modalidad."
+)
+
 k3.metric("Mayor demanda", "Secundaria (50.204)")
 if not df_filtrado.empty:
     conteo_barrios = df_filtrado["BARRIOS_CORREGIDO"].value_counts()
@@ -508,13 +536,50 @@ if not df_filtrado.empty:
     k4.metric("Mayor concentración", f"{top_barrio} ({top_cantidad})")
 else:
     k4.metric("Mayor concentración", "Sin datos")
+
+# KPI de Barrios sin oferta dinámico según el nivel seleccionado
+etiqueta_sin_oferta = "Barrios sin oferta" if not niveles_sel else f"Barrios sin oferta ({', '.join(niveles_sel)})"
 k5.metric(
-    "Barrios sin oferta",
+    etiqueta_sin_oferta,
     total_sin_oferta_dinamico,
-    help="Barrios catastrales sin puntos de establecimientos según los filtros de nivel y modalidad activos.",
+    help="Barrios catastrales que no registran establecimientos activos según los niveles y modalidades filtrados.",
 )
 
 st.markdown("---")
+
+
+# -----------------------------------------------------------------------------
+# Buscador rápido de ubicación de escuelas para hacer zoom en el mapa
+# -----------------------------------------------------------------------------
+with st.container():
+    st.markdown("##### 📍 Localizador rápido de establecimiento")
+    nombres_escuelas_disponibles = sorted(df_filtrado["NOMBRE_DISPLAY"].unique().tolist())
+    escuela_seleccionada = st.selectbox(
+        "Buscá y seleccioná una escuela para enfocarla en el mapa:",
+        options=["-- Seleccionar establecimiento --"] + nombres_escuelas_disponibles,
+        key="selector_zoom_escuela"
+    )
+
+# Determinar coordenadas de enfoque para el mapa
+centro = dict(CENTRO_CORRIENTES)
+zoom_val = ZOOM_INICIAL
+
+if escuela_seleccionada and escuela_seleccionada != "-- Seleccionar establecimiento --":
+    escuela_encontrada = df_filtrado[df_filtrado["NOMBRE_DISPLAY"] == escuela_seleccionada]
+    if not escuela_encontrada.empty:
+        lat_esc = escuela_encontrada.iloc[0]["LATITUD"]
+        lon_esc = escuela_encontrada.iloc[0]["LONGITUD"]
+        if pd.notna(lat_esc) and pd.notna(lon_esc) and -90 <= lat_esc <= 90 and -180 <= lon_esc <= 180:
+            centro = {"lat": float(lat_esc), "lon": float(lon_esc)}
+            zoom_val = 15.5
+elif barrios_sel and not df_filtrado.empty:
+    df_puntos_zoom = df_filtrado.dropna(subset=["LATITUD", "LONGITUD"])
+    if not df_puntos_zoom.empty:
+        centro = {
+            "lat": float(df_puntos_zoom["LATITUD"].mean()),
+            "lon": float(df_puntos_zoom["LONGITUD"].mean()),
+        }
+        zoom_val = 12.8 if len(barrios_sel) > 1 else 13.5
 
 
 # -----------------------------------------------------------------------------
@@ -535,21 +600,10 @@ with col_mapa:
         horizontal=True,
     )
 
-    # Solo los registros con coordenadas geográficas válidas se dibujan como puntos.
-    # El conjunto completo sigue alimentando los filtros, KPIs y gráficos.
     df_puntos = df_filtrado[
         df_filtrado["LATITUD"].between(-90, 90)
         & df_filtrado["LONGITUD"].between(-180, 180)
     ].dropna(subset=["LATITUD", "LONGITUD"]).copy()
-
-    centro = dict(CENTRO_CORRIENTES)
-    zoom_val = ZOOM_INICIAL
-    if barrios_sel and not df_puntos.empty:
-        centro = {
-            "lat": float(df_puntos["LATITUD"].mean()),
-            "lon": float(df_puntos["LONGITUD"].mean()),
-        }
-        zoom_val = 12.8 if len(barrios_sel) > 1 else 13.5
 
     campo_color = "Nivel_Oferta" if criterio_color == "Nivel educativo" else "Modalidad_Display"
     paleta_actual = COLORES_NIVELES if criterio_color == "Nivel educativo" else COLORES_MODALIDADES
@@ -593,8 +647,6 @@ with col_mapa:
             "<br><b>Modalidades disponibles:</b> %{customdata[3]}"
             "<extra></extra>"
         )
-        # La información del tooltip se calcula sobre la fila original, antes de
-        # filtrar. Solo se dibujan los puntos que sí sobrevivieron a los filtros.
         for traza in fig_mapa.data:
             traza.update(
                 hovertemplate=plantilla_hover,
@@ -627,13 +679,10 @@ with col_mapa:
         for traza in fig_mapa.data:
             traza.update(opacity=0, showlegend=False, hoverinfo="skip")
 
-    # Compatibilidad con versiones actuales de Plotly (Scattermap) y anteriores.
     clase_traza_mapa = getattr(go, "Scattermap", None)
     if clase_traza_mapa is None:
         clase_traza_mapa = getattr(go, "Scattermapbox", None)
 
-    # Límites generales: todos los contornos en una sola traza, en vez de crear
-    # una traza por cada parte de cada barrio.
     if ver_barrios and clase_traza_mapa is not None:
         longitudes_limites = []
         latitudes_limites = []
@@ -657,9 +706,6 @@ with col_mapa:
             )
         )
 
-    # Barrios sin oferta: todos los perímetros se envían en una sola traza.
-    # Los separadores None mantienen independientes los polígonos y evitan crear
-    # decenas de trazas cuando muchos barrios quedan sin oferta.
     if ver_sin_oferta and not gdf_barrios_sin_escuelas.empty and clase_traza_mapa is not None:
         longitudes_sin_oferta = []
         latitudes_sin_oferta = []
@@ -700,8 +746,6 @@ with col_mapa:
         font={"color": COLOR_TEXTO},
     )
 
-    # No se activa on_select: navegar o pasar el mouse por el mapa no debe provocar
-    # reruns adicionales ni convertir el mapa en un selector de establecimientos.
     st.plotly_chart(
         fig_mapa,
         use_container_width=True,
@@ -835,31 +879,31 @@ with col_dona:
 
 
 # -----------------------------------------------------------------------------
-# 5. Metodología y fuentes
+# 5. Metodología, Fuentes y Limitaciones actualizadas
 # -----------------------------------------------------------------------------
 st.markdown("---")
 with st.expander("📚 Metodología, fuentes y limitaciones del tablero"):
     st.markdown(
         """
 ### 1. Fuentes y fechas de datos
-* **Padrón de establecimientos:** Portal de Datos Abiertos de la Municipalidad de Corrientes (dataset de establecimientos educativos). Última actualización registrada en 2025 (frecuencia de actualización anual). Del total de registros, se procesaron **332 establecimientos válidos** tras excluir formación profesional, talleres artísticos y servicios complementarios.
-* **Población y demanda (INDEC):** Censo Nacional de Población, Hogares y Viviendas 2022, INDEC (Cuadro 2.7.3 - Provincia de Corrientes, departamento Capital). Corresponde a la población en viviendas particulares que asiste a algún establecimiento educativo, abierta por nivel.
-* **Geometrías:** límites barriales de la Municipalidad de Corrientes, incorporados desde el archivo GeoJSON `BarriosCorrientes.geojson`. Las piezas con el mismo nombre se reúnen para representar cada barrio como una unidad cartográfica.
+- **Padrón de establecimientos:** Portal de Datos Abiertos de la Municipalidad de Corrientes (dataset de establecimientos educativos). Última actualización registrada en 2025 (frecuencia de actualización anual). Del total de registros, se procesaron **332 establecimientos válidos** tras excluir formación profesional, talleres artísticos y servicios complementarios.
+- **Población y demanda (INDEC):** Censo Nacional de Población, Hogares y Viviendas 2022, INDEC (Cuadro 2.7.3 - Provincia de Corrientes, departamento Capital). Corresponde a la población en viviendas particulares que asiste a algún establecimiento educativo, abierta por nivel.
+- **Geometrías:** límites barriales de la Municipalidad de Corrientes, incorporados desde el archivo GeoJSON `BarriosCorrientes.geojson`. Las piezas con el mismo nombre se reúnen para representar cada barrio como una unidad cartográfica.
 
 ### 2. Supuestos y criterios metodológicos
-* **Conteo por nivel:** se utiliza el criterio de *establecimientos que ofrecen el nivel*, permitiendo contar adecuadamente los edificios que albergan más de un nivel educativo (por ejemplo, escuelas con anexo de jardín) sin sumarlos de forma excluyente.
-* **Tramos etarios / niveles:**
+- **Conteo por nivel:** se utiliza el criterio de *establecimientos que ofrecen el nivel*, permitiendo contar adecuadamente los edificios que albergan más de un nivel educativo (por ejemplo, escuelas con anexo de jardín) sin sumarlos de forma excluyente.
+- **Tramos etarios / niveles:**
   * *Materna / CDI:* 0 a 3 años (7.321 asistencias).
   * *Inicial:* salas 4 y 5 (11.116 asistencias).
   * *Primaria:* 46.040 asistencias.
   * *Secundaria:* 50.204 asistencias.
   * *Superior / terciario:* 16.331 asistencias.
-* **Alcance demográfico:** los datos de población escolarizada del INDEC corresponden al total del departamento Capital y actúan como referencia general del tablero.
-* **Barrios sin oferta:** se identifican mediante una relación espacial entre las coordenadas disponibles de los establecimientos y los polígonos barriales. El resultado depende de la cobertura y precisión de esas coordenadas.
+- **Alcance demográfico y limitaciones de desagregación:** los datos de población escolarizada del INDEC corresponden al total del departamento Capital y actúan como referencia global. **Nota metodológica clave:** aunque se filtre el tablero por barrio o por modalidad, el indicador superior de población escolarizada del INDEC no se actualiza ni se fracciona a nivel barrial o modal, debido a que las fuentes censales públicas oficiales no poseen desagregación espacial a escala de polígono vecinal para estas variables.
+- **Barrios sin oferta dinámicos:** se identifican mediante una relación espacial vectorial (*Spatial Join*) entre las coordenadas de los establecimientos filtrados y los polígonos barriales. Cuando el usuario selecciona un nivel específico (ej. Secundaria), el contador suma de forma estricta los barrios que carecen de establecimientos habilitados para dicho nivel.
 
 ### 3. Límites del tablero
-* **Coordenadas:** el 82% de los establecimientos en el padrón oficial poseen ubicación marcada como "aproximada", lo cual puede generar leves desplazamientos espaciales en los límites vecinales al realizar el cruce.
-* **Casos rurales o periféricos:** establecimientos rurales específicos o ubicados en parajes y asentamientos alejados se evalúan según su coordenada frente al polígono correspondiente.
-* **Desfase temporal (INDEC 2022 vs. padrón 2025):** se cruzan datos de demanda poblacional del Censo Nacional 2022 con un padrón de oferta educativa actualizado a 2025. Esto implica que la foto demográfica y la infraestructura escolar no corresponden estrictamente al mismo año calendario, lo cual debe considerarse al analizar ratios de cobertura en zonas de expansión urbana.
+- **Coordenadas:** el 82% de los establecimientos en el padrón oficial poseen ubicación marcada como "aproximada", lo cual puede generar leves desplazamientos espaciales en los límites vecinales al realizar el cruce.
+- **Casos rurales o periféricos:** establecimientos rurales específicos o ubicados en parajes y asentamientos alejados se evalúan según su coordenada frente al polígono correspondiente.
+- **Desfase temporal (INDEC 2022 vs. padrón 2025):** se cruzan datos de demanda poblacional del Censo Nacional 2022 con un padrón de oferta educativa actualizado a 2025. Esto implica que la foto demográfica y la infraestructura escolar no corresponden estrictamente al mismo año calendario, lo cual debe considerarse al analizar ratios de cobertura en zonas de expansión urbana.
 """
     )

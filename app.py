@@ -517,11 +517,11 @@ st.markdown("---")
 
 
 # -----------------------------------------------------------------------------
-# Desplegable localizador rápido de establecimiento con zoom y marcador en mapa
+# Desplegable localizador rápido de establecimiento (sobre escuelas filtradas)
 # -----------------------------------------------------------------------------
 with st.container():
     st.markdown("##### 📍 Localizador y marcador de establecimiento en mapa")
-    nombres_escuelas_disponibles = sorted(df_escuelas["NOMBRE_DISPLAY"].unique().tolist())
+    nombres_escuelas_disponibles = sorted(df_filtrado["NOMBRE_DISPLAY"].dropna().unique().tolist())
     escuela_seleccionada = st.selectbox(
         "Seleccioná una escuela para enfocarla y marcarla con un punto destacado en el mapa:",
         options=["-- Seleccionar establecimiento --"] + nombres_escuelas_disponibles,
@@ -533,7 +533,7 @@ zoom_val = ZOOM_INICIAL
 df_escuela_foco = pd.DataFrame()
 
 if escuela_seleccionada and escuela_seleccionada != "-- Seleccionar establecimiento --":
-    df_escuela_foco = df_escuelas[df_escuelas["NOMBRE_DISPLAY"] == escuela_seleccionada]
+    df_escuela_foco = df_filtrado[df_filtrado["NOMBRE_DISPLAY"] == escuela_seleccionada]
     if not df_escuela_foco.empty:
         lat_esc = df_escuela_foco.iloc[0]["LATITUD"]
         lon_esc = df_escuela_foco.iloc[0]["LONGITUD"]
@@ -651,23 +651,27 @@ with col_mapa:
     if clase_traza_mapa is None:
         clase_traza_mapa = getattr(go, "Scattermapbox", None)
 
+    # Marcador en foco blindado de forma segura
     if not df_escuela_foco.empty and clase_traza_mapa is not None:
         fila_foco = df_escuela_foco.iloc[0]
-        fig_mapa.add_trace(
-            clase_traza_mapa(
-                lat=[fila_foco["LATITUD"]],
-                lon=[fila_foco["LONGITUD"]],
-                mode="markers",
-                marker=dict(
-                    size=16,
-                    color="#F1C40F",
-                    symbol="circle",
-                    line=dict(width=3, color="#FFFFFF")
-                ),
-                name=f"Foco: {fila_foco['NOMBRE_DISPLAY']}",
-                hovertemplate=f"<b>📍 ESTABLECIMIENTO SELECCIONADO</b><br>{fila_foco['NOMBRE_DISPLAY']}<br>Barrio: {fila_foco['BARRIOS_CORREGIDO']}<extra></extra>"
+        lat_foco = fila_foco.get("LATITUD")
+        lon_foco = fila_foco.get("LONGITUD")
+        if pd.notna(lat_foco) and pd.notna(lon_foco):
+            fig_mapa.add_trace(
+                clase_traza_mapa(
+                    lat=[float(lat_foco)],
+                    lon=[float(lon_foco)],
+                    mode="markers",
+                    marker=dict(
+                        size=16,
+                        color="#F1C40F",
+                        symbol="circle",
+                        line=dict(width=3, color="#FFFFFF")
+                    ),
+                    name=f"Foco: {fila_foco['NOMBRE_DISPLAY']}",
+                    hovertemplate=f"<b>📍 ESTABLECIMIENTO SELECCIONADO</b><br>{fila_foco['NOMBRE_DISPLAY']}<br>Barrio: {fila_foco['BARRIOS_CORREGIDO']}<extra></extra>"
+                )
             )
-        )
 
     if ver_barrios and clase_traza_mapa is not None:
         longitudes_limites = []
@@ -872,7 +876,7 @@ with st.expander("📚 Metodología, fuentes y limitaciones del tablero"):
     st.markdown(
         """
 ### 1. Fuentes y fechas de datos
-- **Padrón de establecimientos:** Portal de Datos Abiertos de la Municipalidad de Corrientes (dataset de establecimientos educativos). Última actualización registrada en 2025 (frecuencia de actualización anual). Del total de registros, se procesaron **332 establecimientos educativos formales válidos** 
+- **Padrón de establecimientos:** Portal de Datos Abiertos de la Municipalidad de Corrientes (dataset de establecimientos educativos). Última actualización registrada en 2025 (frecuencia de actualización anual). Del total de registros, se procesaron **332 establecimientos educativos formales válidos**.
 - **Población y demanda (INDEC):** Censo Nacional de Población, Hogares y Viviendas 2022, INDEC (Cuadro 2.7.3 - Provincia de Corrientes, departamento Capital). Corresponde a la población en viviendas particulares que asiste a algún establecimiento educativo, abierta por nivel.
 - **Geometrías:** límites barriales de la Municipalidad de Corrientes, incorporados desde el archivo GeoJSON `BarriosCorrientes.geojson`. Las piezas con el mismo nombre se reúnen para representar cada barrio como una unidad cartográfica.
 

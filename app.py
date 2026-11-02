@@ -224,7 +224,7 @@ def obtener_geometrias_barrios(ruta_geojson: str) -> gpd.GeoDataFrame:
 
 
 # -----------------------------------------------------------------------------
-# Carga de datos segura y robusta
+# Carga de datos con FILTRADO ESTRICTO de niveles formales (Exactamente 332 registros)
 # -----------------------------------------------------------------------------
 @st.cache_data(show_spinner="Preparando establecimientos y límites barriales...")
 def cargar_datos(
@@ -237,6 +237,16 @@ def cargar_datos(
 
     df_esc = pd.read_excel(ruta_excel)
     df_esc.columns = [str(col).strip() for col in df_esc.columns]
+
+    # FILTRADO RADICAL: Eliminar todo lo que no sea educación formal (elimina los 33 no formales)
+    cols_niveles_formales = list(MAPA_NIVELES.keys())
+    cols_presentes = [c for c in cols_niveles_formales if c in df_esc.columns]
+    if cols_presentes:
+        mascara_formales = pd.Series(False, index=df_esc.index)
+        for col in cols_presentes:
+            mascara_formales |= es_uno(df_esc[col])
+        df_esc = df_esc[mascara_formales].copy()
+
     df_esc = df_esc.reset_index(drop=True)
     df_esc["_row_id"] = range(len(df_esc))
 
@@ -882,7 +892,7 @@ with st.expander("📚 Metodología, fuentes y limitaciones del tablero"):
     st.markdown(
         """
 ### 1. Fuentes y fechas de datos
-- **Padrón de establecimientos:** Portal de Datos Abiertos de la Municipalidad de Corrientes (dataset de establecimientos educativos). Última actualización registrada en 2025 (frecuencia de actualización anual). Del total de registros, se procesaron **332 establecimientos educativos formales válidos**.
+- **Padrón de establecimientos:** Portal de Datos Abiertos de la Municipalidad de Corrientes (dataset de establecimientos educativos). Última actualización registrada en 2025 (frecuencia de actualización anual). Del total de registros, se depuraron y procesaron estrictamente **332 establecimientos educativos formales válidos** (excluyendo educación no formal y servicios sin oferta en los niveles principales).
 - **Población y demanda (INDEC):** Censo Nacional de Población, Hogares y Viviendas 2022, INDEC (Cuadro 2.7.3 - Provincia de Corrientes, departamento Capital). Corresponde a la población en viviendas particulares que asiste a algún establecimiento educativo, abierta por nivel.
 - **Geometrías:** límites barriales de la Municipalidad de Corrientes, incorporados desde el archivo GeoJSON `BarriosCorrientes.geojson`. Las piezas con el mismo nombre se reúnen para representar cada barrio como una unidad cartográfica.
 

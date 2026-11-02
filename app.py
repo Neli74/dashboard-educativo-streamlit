@@ -70,7 +70,6 @@ COLOR_TEXTO = "#EAF2FF"
 COLOR_CELESTE = "#56CCF2"
 COLOR_SIN_OFERTA = "#EF4444"
 
-# Población INDEC 2022 de referencia global y por nivel
 POBLACION_INDEC_TOTAL = "161.863"
 POBLACION_INDEC_NIVELES = {
     "Educación Temprana / CDI": {"valor": 7321, "texto": "7.321 (Materna 0 a 3)"},
@@ -82,7 +81,7 @@ POBLACION_INDEC_NIVELES = {
 
 
 # -----------------------------------------------------------------------------
-# Funciones auxiliares de preparación
+# Funciones auxiliares
 # -----------------------------------------------------------------------------
 def resolver_columna(df: pd.DataFrame, nombres: Iterable[str], obligatoria: bool = False):
     equivalencias = {str(col).strip().casefold(): col for col in df.columns}
@@ -225,7 +224,7 @@ def obtener_geometrias_barrios(ruta_geojson: str) -> gpd.GeoDataFrame:
 
 
 # -----------------------------------------------------------------------------
-# Carga de datos con filtrado estricto de niveles formales (332 registros)
+# Carga de datos segura y robusta
 # -----------------------------------------------------------------------------
 @st.cache_data(show_spinner="Preparando establecimientos y límites barriales...")
 def cargar_datos(
@@ -238,15 +237,6 @@ def cargar_datos(
 
     df_esc = pd.read_excel(ruta_excel)
     df_esc.columns = [str(col).strip() for col in df_esc.columns]
-
-    cols_niveles_formales = ["N. SECUNDARIO", "N. PRIMARIO", "N.INICIAL", "N. SUPERIOR", "N. ED. TERMPRANA"]
-    cols_presentes = [c for c in cols_niveles_formales if c in df_esc.columns]
-    if cols_presentes:
-        mascara_formales = pd.Series(False, index=df_esc.index)
-        for col in cols_presentes:
-            mascara_formales |= es_uno(df_esc[col])
-        df_esc = df_esc[mascara_formales].copy()
-
     df_esc = df_esc.reset_index(drop=True)
     df_esc["_row_id"] = range(len(df_esc))
 
@@ -365,17 +355,11 @@ def cargar_datos(
 # Comprobación de archivos requeridos
 # -----------------------------------------------------------------------------
 if not ARCHIVO_ESCUELAS.exists():
-    st.error(
-        "No se encontró **ESCUELAS_DEFINITIVA.xlsx**. "
-        "Colocá el archivo Excel en la misma carpeta que app.py."
-    )
+    st.error("No se encontró **ESCUELAS_DEFINITIVA.xlsx**.")
     st.stop()
 
 if not ARCHIVO_BARRIOS.exists():
-    st.error(
-        "No se encontró **BarriosCorrientes.geojson**. "
-        "Colocá el GeoJSON en la misma carpeta que app.py."
-    )
+    st.error("No se encontró **BarriosCorrientes.geojson**.")
     st.stop()
 
 marca_excel = (ARCHIVO_ESCUELAS.stat().st_mtime_ns, ARCHIVO_ESCUELAS.stat().st_size)
@@ -407,4 +391,505 @@ st.sidebar.title("Filtros del tablero")
 barrios_disponibles = sorted(
     df_escuelas["BARRIOS_CORREGIDO"].dropna().astype(str).unique().tolist()
 )
-barrios_sel = st.sidebar.multise
+barrios_sel = st.sidebar.multiselect(
+    "Seleccionar barrio(s):",
+    options=barrios_disponibles,
+    placeholder="Todos los barrios (o seleccioná uno o más)",
+)
+
+niveles_validos = [
+    (columna, etiqueta)
+    for columna, etiqueta in MAPA_NIVELES.items()
+    if columna in df_escuelas.columns
+]
+nombres_niveles_disponibles = [etiqueta for _, etiqueta in niveles_validos]
+
+niveles_sel = st.sidebar.multiselect(
+    "Filtrar por niveles:",
+    options=nombres_niveles_disponibles,
+    default=[],
+    placeholder="Seleccionar uno o más niveles...",
+)
+
+orden_modalidades = [
+    "Común",
+    "Especial",
+    "Técnica",
+    "Artística",
+    "Rural",
+    "Jóvenes y Adultos (EPJA)",
+    "Contexto de Encierro",
+    "Bilingüe",
+]
+modalidades_presentes = [
+    modalidad
+    for modalidad in orden_modalidades
+    if modalidad in set(df_escuelas["Modalidad_Display"].dropna().astype(str))
+]
+
+modalidades_sel = st.sidebar.multiselect(
+    "Filtrar por modalidad:",
+    options=modalidades_presentes,
+    default=[],
+    placeholder="Seleccionar modalidad(es)...",
+)
+
+# -----------------------------------------------------------------------------
+# Lógica de filtrado progresivo y cálculo de cobertura dinámica
+# -----------------------------------------------------------------------------
+df_nivel_modalidad = df_escuelas
+
+if niveles_sel:
+    mascara_niveles = pd.Series(False, index=df_nivel_modalidad.index)
+    for columna, etiqueta in MAPA_NIVELES.items():
+        if etiqueta in niveles_sel and columna in df_nivel_modalidad.columns:
+            mascara_niveles |= es_uno(df_nivel_modalidad[columna])
+    df_nivel_modalidad = df_nivel_modalidad[mascara_niveles]
+
+if modalidades_sel:
+    df_nivel_modalidad = df_nivel_modalidad[
+        df_nivel_modalidad["Modalidad_Display"].isin(modalidades_sel)
+    ]
+
+ids_filtrados = set(df_nivel_modalidad["_row_id"].astype(int).tolist())
+barrios_con_oferta = {
+    barrio
+    for row_id in ids_filtrados
+    for barrio in mapa_registro_barrio.get(row_id, ())
+}
+barrios_totales = set(gdf_barrios["NOMBRE_BARRIO_GEOJSON"].astype(str))
+nombres_sin_oferta_dinamico = sorted(barrios_totales - barrios_con_oferta)
+total_sin_oferta_dinamico = len(nombres_sin_oferta_dinamico)
+gdf_barrios_sin_escuelas = gdf_barrios_plot[
+    gdf_barrios_plot["NOMBRE_BARRIO_GEOJSON"].isin(nombres_sin_oferta_dinamico)
+].copy()
+
+df_filtrado = df_nivel_modalidad
+if barrios_sel:
+    df_filtrado = df_filtrado[
+        df_filtrado["BARRIOS_CORREGIDO"].astype(str).isin(barrios_sel)
+    ]
+df_filtrado = df_filtrado.copy()
+
+
+# -----------------------------------------------------------------------------
+# 2. Encabezado y KPIs Dinámicos con Tooltip Metodológico
+# -----------------------------------------------------------------------------
+st.title("Establecimientos Educativos en Corrientes - INDEC vs Oferta")
+
+if len(niveles_sel) == 1:
+    nivel_activo = niveles_sel[0]
+    poblacion_kpi = POBLACION_INDEC_NIVELES.get(nivel_activo, {}).get("texto", POBLACION_INDEC_TOTAL)
+    etiqueta_poblq = f"Población ({nivel_activo})"
+elif len(niveles_sel) > 1:
+    poblacion_kpi = "Múltiple"
+    etiqueta_poblq = "Población Escolarizada"
+else:
+    poblacion_kpi = POBLACION_INDEC_TOTAL
+    etiqueta_poblq = "Población Escolarizada"
+
+k1, k2, k3, k4, k5 = st.columns(5)
+k1.metric("Establecimientos filtrados", f"{len(df_filtrado):,}".replace(",", "."))
+
+k2.metric(
+    etiqueta_poblq,
+    poblacion_kpi,
+    help="⚠️ Dato correspondiente al Censo INDEC 2022 (departamento Capital). Nota metodológica: no se encuentra desagregado por barrio ni por modalidad."
+)
+
+k3.metric("Mayor demanda", "Secundaria (50.204)")
+if not df_filtrado.empty:
+    conteo_barrios = df_filtrado["BARRIOS_CORREGIDO"].value_counts()
+    top_barrio = conteo_barrios.index[0]
+    top_cantidad = int(conteo_barrios.iloc[0])
+    k4.metric("Mayor concentración", f"{top_barrio} ({top_cantidad})")
+else:
+    k4.metric("Mayor concentración", "Sin datos")
+
+etiqueta_sin_oferta = "Barrios sin oferta" if not niveles_sel else f"Barrios sin oferta ({', '.join(niveles_sel)})"
+k5.metric(
+    etiqueta_sin_oferta,
+    total_sin_oferta_dinamico,
+    help="Barrios catastrales que no registran establecimientos activos según los niveles y modalidades filtrados.",
+)
+
+st.markdown("---")
+
+
+# -----------------------------------------------------------------------------
+# Desplegable localizador rápido de establecimiento con zoom y marcador en mapa
+# -----------------------------------------------------------------------------
+with st.container():
+    st.markdown("##### 📍 Localizador y marcador de establecimiento en mapa")
+    nombres_escuelas_disponibles = sorted(df_escuelas["NOMBRE_DISPLAY"].unique().tolist())
+    escuela_seleccionada = st.selectbox(
+        "Seleccioná una escuela para enfocarla y marcarla con un punto destacado en el mapa:",
+        options=["-- Seleccionar establecimiento --"] + nombres_escuelas_disponibles,
+        key="selector_zoom_escuela"
+    )
+
+centro = dict(CENTRO_CORRIENTES)
+zoom_val = ZOOM_INICIAL
+df_escuela_foco = pd.DataFrame()
+
+if escuela_seleccionada and escuela_seleccionada != "-- Seleccionar establecimiento --":
+    df_escuela_foco = df_escuelas[df_escuelas["NOMBRE_DISPLAY"] == escuela_seleccionada]
+    if not df_escuela_foco.empty:
+        lat_esc = df_escuela_foco.iloc[0]["LATITUD"]
+        lon_esc = df_escuela_foco.iloc[0]["LONGITUD"]
+        if pd.notna(lat_esc) and pd.notna(lon_esc) and -90 <= lat_esc <= 90 and -180 <= lon_esc <= 180:
+            centro = {"lat": float(lat_esc), "lon": float(lon_esc)}
+            zoom_val = 16.0
+elif barrios_sel and not df_filtrado.empty:
+    df_puntos_zoom = df_filtrado.dropna(subset=["LATITUD", "LONGITUD"])
+    if not df_puntos_zoom.empty:
+        centro = {
+            "lat": float(df_puntos_zoom["LATITUD"].mean()),
+            "lon": float(df_puntos_zoom["LONGITUD"].mean()),
+        }
+        zoom_val = 12.8 if len(barrios_sel) > 1 else 13.5
+
+
+# -----------------------------------------------------------------------------
+# 3. Mapa y gráficos superiores
+# -----------------------------------------------------------------------------
+col_mapa, col_grafico = st.columns([1.1, 0.9])
+
+with col_mapa:
+    st.subheader("Distribución territorial de establecimientos")
+
+    c_capas1, c_capas2, c_capas3, c_capas4 = st.columns(4)
+    ver_barrios = c_capas1.checkbox("Límites de barrios", value=True)
+    ver_sin_oferta = c_capas2.checkbox("Destacar sin oferta", value=True)
+    ver_escuelas = c_capas3.checkbox("Ver establecimientos", value=True)
+    criterio_color = c_capas4.radio(
+        "Colorear por:",
+        ["Nivel educativo", "Modalidad"],
+        horizontal=True,
+    )
+
+    df_puntos = df_filtrado[
+        df_filtrado["LATITUD"].between(-90, 90)
+        & df_filtrado["LONGITUD"].between(-180, 180)
+    ].dropna(subset=["LATITUD", "LONGITUD"]).copy()
+
+    campo_color = "Nivel_Oferta" if criterio_color == "Nivel educativo" else "Modalidad_Display"
+    paleta_actual = COLORES_NIVELES if criterio_color == "Nivel educativo" else COLORES_MODALIDADES
+    etiqueta_color = "Nivel educativo" if criterio_color == "Nivel educativo" else "Modalidad"
+
+    if ver_escuelas and not df_puntos.empty:
+        argumentos_mapa = {
+            "data_frame": df_puntos,
+            "lat": "LATITUD",
+            "lon": "LONGITUD",
+            "color": campo_color,
+            "color_discrete_map": paleta_actual,
+            "hover_name": "NOMBRE_DISPLAY",
+            "custom_data": [
+                "CUE_DISPLAY",
+                "BARRIOS_CORREGIDO",
+                "Niveles_Disponibles",
+                "Modalidades_Disponibles",
+            ],
+            "center": centro,
+            "zoom": zoom_val,
+            "height": 520,
+            "labels": {campo_color: etiqueta_color},
+        }
+        if hasattr(px, "scatter_map"):
+            fig_mapa = px.scatter_map(
+                **argumentos_mapa,
+                map_style="open-street-map",
+            )
+        else:
+            fig_mapa = px.scatter_mapbox(
+                **argumentos_mapa,
+                mapbox_style="open-street-map",
+            )
+
+        plantilla_hover = (
+            "<b>%{hovertext}</b>"
+            "<br><b>CUE:</b> %{customdata[0]}"
+            "<br><b>Barrio:</b> %{customdata[1]}"
+            "<br><b>Niveles disponibles:</b> %{customdata[2]}"
+            "<br><b>Modalidades disponibles:</b> %{customdata[3]}"
+            "<extra></extra>"
+        )
+        for traza in fig_mapa.data:
+            traza.update(
+                hovertemplate=plantilla_hover,
+                marker={"size": 10, "opacity": 0.92},
+            )
+    else:
+        df_vacio = pd.DataFrame(
+            {"LATITUD": [centro["lat"]], "LONGITUD": [centro["lon"]]}
+        )
+        if hasattr(px, "scatter_map"):
+            fig_mapa = px.scatter_map(
+                df_vacio,
+                lat="LATITUD",
+                lon="LONGITUD",
+                center=centro,
+                zoom=zoom_val,
+                height=520,
+                map_style="open-street-map",
+            )
+        else:
+            fig_mapa = px.scatter_mapbox(
+                df_vacio,
+                lat="LATITUD",
+                lon="LONGITUD",
+                center=centro,
+                zoom=zoom_val,
+                height=520,
+                mapbox_style="open-street-map",
+            )
+        for traza in fig_mapa.data:
+            traza.update(opacity=0, showlegend=False, hoverinfo="skip")
+
+    clase_traza_mapa = getattr(go, "Scattermap", None)
+    if clase_traza_mapa is None:
+        clase_traza_mapa = getattr(go, "Scattermapbox", None)
+
+    if not df_escuela_foco.empty and clase_traza_mapa is not None:
+        fila_foco = df_escuela_foco.iloc[0]
+        fig_mapa.add_trace(
+            clase_traza_mapa(
+                lat=[fila_foco["LATITUD"]],
+                lon=[fila_foco["LONGITUD"]],
+                mode="markers",
+                marker=dict(
+                    size=16,
+                    color="#F1C40F",
+                    symbol="circle",
+                    line=dict(width=3, color="#FFFFFF")
+                ),
+                name=f"Foco: {fila_foco['NOMBRE_DISPLAY']}",
+                hovertemplate=f"<b>📍 ESTABLECIMIENTO SELECCIONADO</b><br>{fila_foco['NOMBRE_DISPLAY']}<br>Barrio: {fila_foco['BARRIOS_CORREGIDO']}<extra></extra>"
+            )
+        )
+
+    if ver_barrios and clase_traza_mapa is not None:
+        longitudes_limites = []
+        latitudes_limites = []
+        for geometria in gdf_barrios_plot.geometry:
+            for poligono in extraer_poligonos(geometria):
+                x, y = poligono.exterior.xy
+                longitudes_limites.extend(list(x) + [None])
+                latitudes_limites.extend(list(y) + [None])
+                for anillo in poligono.interiors:
+                    xi, yi = anillo.xy
+                    longitudes_limites.extend(list(xi) + [None])
+                    latitudes_limites.extend(list(yi) + [None])
+        fig_mapa.add_trace(
+            clase_traza_mapa(
+                lon=longitudes_limites,
+                lat=latitudes_limites,
+                mode="lines",
+                line={"width": 1.15, "color": "#75A9C8"},
+                name="Límites de barrios",
+                hoverinfo="skip",
+            )
+        )
+
+    if ver_sin_oferta and not gdf_barrios_sin_escuelas.empty and clase_traza_mapa is not None:
+        longitudes_sin_oferta = []
+        latitudes_sin_oferta = []
+        for geometria in gdf_barrios_sin_escuelas.geometry:
+            for poligono in extraer_poligonos(geometria):
+                x, y = poligono.exterior.xy
+                longitudes_sin_oferta.extend(list(x) + [None])
+                latitudes_sin_oferta.extend(list(y) + [None])
+        if longitudes_sin_oferta:
+            fig_mapa.add_trace(
+                clase_traza_mapa(
+                    lon=longitudes_sin_oferta,
+                    lat=latitudes_sin_oferta,
+                    mode="lines",
+                    fill="toself",
+                    fillcolor="rgba(239, 68, 68, 0.20)",
+                    line={"width": 1.7, "color": COLOR_SIN_OFERTA},
+                    name="Barrios sin oferta",
+                    legendgroup="sin_oferta",
+                    showlegend=False,
+                    hoverinfo="skip",
+                )
+            )
+
+    fig_mapa.update_layout(
+        template="plotly_dark",
+        margin={"l": 0, "r": 0, "t": 12, "b": 0},
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "left",
+            "x": 0,
+            "font": {"color": COLOR_TEXTO, "size": 11},
+            "bgcolor": "rgba(11, 18, 32, 0.72)",
+        },
+        hovermode="closest",
+        font={"color": COLOR_TEXTO},
+    )
+
+    st.plotly_chart(
+        fig_mapa,
+        use_container_width=True,
+        config={"scrollZoom": True, "displayModeBar": False},
+        key="mapa_interactivo",
+    )
+
+with col_grafico:
+    st.subheader("Top 15: distribución de establecimientos por barrio")
+    top_barrios = (
+        df_filtrado["BARRIOS_CORREGIDO"]
+        .dropna()
+        .astype(str)
+        .value_counts()
+        .head(15)
+        .rename_axis("Barrio")
+        .reset_index(name="Cantidad_Escuelas")
+    )
+
+    if not top_barrios.empty:
+        fig_barras = px.bar(
+            top_barrios,
+            x="Cantidad_Escuelas",
+            y="Barrio",
+            orientation="h",
+            text_auto=True,
+            color_discrete_sequence=[COLOR_CELESTE],
+        )
+        fig_barras.update_layout(
+            template="plotly_dark",
+            yaxis={"autorange": "reversed"},
+            margin={"l": 0, "r": 10, "t": 10, "b": 10},
+            xaxis_title="Cantidad de establecimientos",
+            yaxis_title="",
+            height=520,
+            font={"color": COLOR_TEXTO},
+        )
+        st.plotly_chart(fig_barras, use_container_width=True)
+    else:
+        st.info("No hay establecimientos para los filtros seleccionados.")
+
+st.markdown("---")
+
+
+# -----------------------------------------------------------------------------
+# 4. Demanda INDEC vs oferta y distribución
+# -----------------------------------------------------------------------------
+col_tabla, col_dona = st.columns([1.2, 0.8])
+
+with col_tabla:
+    st.subheader("Demanda INDEC vs oferta de establecimientos (Capital)")
+    st.dataframe(
+        df_demanda,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Nivel": "Nivel educativo",
+            "Alumnos_INDEC": st.column_config.NumberColumn(
+                "Alumnos INDEC (demanda)", format="%d"
+            ),
+            "Escuelas": st.column_config.NumberColumn(
+                "Establecimientos", format="%d"
+            ),
+            "Ratio_Alumnos_x_Escuela": st.column_config.NumberColumn(
+                "Ratio alumnos / establecimiento", format="%d"
+            ),
+        },
+    )
+
+with col_dona:
+    if len(barrios_sel) == 1:
+        sufijo_barrio = f"- {barrios_sel[0]}"
+    elif len(barrios_sel) > 1:
+        sufijo_barrio = f"- {len(barrios_sel)} barrios"
+    else:
+        sufijo_barrio = "- Corrientes Capital"
+
+    if criterio_color == "Nivel educativo":
+        st.subheader(f"Distribución por nivel {sufijo_barrio}")
+        distribucion = (
+            df_filtrado["Nivel_Oferta"].value_counts().rename_axis("Nivel").reset_index(name="Cantidad")
+        )
+        if not distribucion.empty:
+            fig_distribucion = px.pie(
+                distribucion,
+                names="Nivel",
+                values="Cantidad",
+                hole=0.45,
+                color="Nivel",
+                color_discrete_map=COLORES_NIVELES,
+            )
+            fig_distribucion.update_layout(
+                template="plotly_dark",
+                margin={"l": 10, "r": 10, "t": 10, "b": 10},
+                height=320,
+                font={"color": COLOR_TEXTO},
+            )
+            st.plotly_chart(fig_distribucion, use_container_width=True)
+        else:
+            st.info("No hay datos para construir la distribución por nivel.")
+    else:
+        st.subheader(f"Oferta por modalidad {sufijo_barrio}")
+        distribucion = (
+            df_filtrado["Modalidad_Display"]
+            .value_counts()
+            .rename_axis("Modalidad")
+            .reset_index(name="Cantidad")
+        )
+        if not distribucion.empty:
+            fig_distribucion = px.bar(
+                distribucion,
+                x="Cantidad",
+                y="Modalidad",
+                orientation="h",
+                text_auto=True,
+                color="Modalidad",
+                color_discrete_map=COLORES_MODALIDADES,
+            )
+            fig_distribucion.update_layout(
+                template="plotly_dark",
+                yaxis={"autorange": "reversed"},
+                margin={"l": 10, "r": 10, "t": 10, "b": 10},
+                xaxis_title="Cantidad de establecimientos",
+                yaxis_title="",
+                height=320,
+                font={"color": COLOR_TEXTO},
+            )
+            st.plotly_chart(fig_distribucion, use_container_width=True)
+        else:
+            st.info("No hay datos para construir la distribución por modalidad.")
+
+
+# -----------------------------------------------------------------------------
+# 5. Metodología, Fuentes y Limitaciones actualizadas
+# -----------------------------------------------------------------------------
+st.markdown("---")
+with st.expander("📚 Metodología, fuentes y limitaciones del tablero"):
+    st.markdown(
+        """
+### 1. Fuentes y fechas de datos
+- **Padrón de establecimientos:** Portal de Datos Abiertos de la Municipalidad de Corrientes (dataset de establecimientos educativos). Última actualización registrada en 2025 (frecuencia de actualización anual). Del total de registros, se procesaron **332 establecimientos educativos formales válidos** 
+- **Población y demanda (INDEC):** Censo Nacional de Población, Hogares y Viviendas 2022, INDEC (Cuadro 2.7.3 - Provincia de Corrientes, departamento Capital). Corresponde a la población en viviendas particulares que asiste a algún establecimiento educativo, abierta por nivel.
+- **Geometrías:** límites barriales de la Municipalidad de Corrientes, incorporados desde el archivo GeoJSON `BarriosCorrientes.geojson`. Las piezas con el mismo nombre se reúnen para representar cada barrio como una unidad cartográfica.
+
+### 2. Supuestos y criterios metodológicos
+- **Conteo por nivel:** se utiliza el criterio de *establecimientos que ofrecen el nivel*, permitiendo contar adecuadamente los edificios que albergan más de un nivel educativo (por ejemplo, escuelas con anexo de jardín) sin sumarlos de forma excluyente.
+- **Tramos etarios / niveles:**
+  * *Materna / CDI:* 0 a 3 años (7.321 asistencias).
+  * *Inicial:* salas 4 y 5 (11.116 asistencias).
+  * *Primaria:* 46.040 asistencias.
+  * *Secundaria:* 50.204 asistencias.
+  * *Superior / terciario:* 16.331 asistencias.
+- **Alcance demográfico y limitaciones de desagregación:** los datos de población escolarizada del INDEC corresponden al total del departamento Capital y actúan como referencia global. **Nota metodológica clave:** aunque se filtre el tablero por barrio o por modalidad, el indicador superior de población escolarizada del INDEC no se actualiza ni se fracciona a nivel barrial o modal, debido a que las fuentes censales públicas oficiales no poseen desagregación espacial a escala de polígono vecinal para estas variables.
+- **Barrios sin oferta dinámicos:** se identifican mediante una relación espacial vectorial (*Spatial Join*) entre las coordenadas de los establecimientos filtrados y los polígonos barriales. Cuando el usuario selecciona un nivel específico (ej. Secundaria), el contador suma de forma estricta los barrios que carecen de establecimientos habilitados para dicho nivel.
+
+### 3. Límites del tablero
+- **Coordenadas:** el 82% de los establecimientos en el padrón oficial poseen ubicación marcada como "aproximada", lo cual puede generar leves desplazamientos espaciales en los límites vecinales al realizar el cruce.
+- **Casos rurales o periféricos:** establecimientos rurales específicos o ubicados en parajes y asentamientos alejados se evalúan según su coordenada frente al polígono correspondiente.
+- **Desfase temporal (INDEC 2022 vs. padrón 2025):** se cruzan datos de demanda poblacional del Censo Nacional 2022 con un padrón de oferta educativa actualizado a 2025. Esto implica que la foto demográfica y la infraestructura escolar no corresponden estrictamente al mismo año calendario, lo cual debe considerarse al analizar ratios de cobertura en zonas de expansión urbana.
+"""
+    )

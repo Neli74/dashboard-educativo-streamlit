@@ -856,7 +856,7 @@ with st.expander("📚 Metodología, fuentes y limitaciones del tablero"):
   * *Inicial:* salas 4 y 5 (11.116 asistencias).
   * *Primaria:* 46.040 asistencias.
   * *Secundaria:* 50.204 asistencias.
-  * *Superior / terciario:* 16.331 asistencias.
+  * *Superior no universitario/ terciario:* 16.331 asistencias. Cuando refiere nivel superior, es referido a pre-grado exclusivamente.
 - **Barrios sin oferta dinámicos:** se identifican mediante una relación espacial vectorial (*Spatial Join*) entre las coordenadas de los establecimientos filtrados y los polígonos barriales. Cuando el usuario selecciona un nivel específico (ej. Secundaria), el contador suma de forma estricta los barrios que carecen de establecimientos habilitados para dicho nivel.
 
 ### 3. Límites del tablero

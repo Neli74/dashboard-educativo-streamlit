@@ -329,8 +329,8 @@ def cargar_datos(
 
     demanda = {
         "Nivel": [
-            "Materna / CDI (0 a 3)",
-            "Inicial (Salas 4 y 5)",
+            "Educación Temprana / CDI",
+            "Inicial",
             "Primaria",
             "Secundaria",
             "Superior",
@@ -491,12 +491,25 @@ if len(niveles_sel) == 1:
     nivel_activo = niveles_sel[0]
     poblacion_kpi = POBLACION_INDEC_NIVELES.get(nivel_activo, {}).get("texto", POBLACION_INDEC_TOTAL)
     etiqueta_poblq = f"Población ({nivel_activo})"
+    
+    # Obtener el ratio específico del nivel activo desde el dataframe de demanda
+    fila_demanda_nivel = df_demanda[df_demanda["Nivel"] == nivel_activo]
+    if not fila_demanda_nivel.empty:
+        val_ratio = fila_demanda_nivel.iloc[0]["Ratio_Alumnos_x_Escuela"]
+        ratio_kpi = f"{val_ratio:,}".replace(",", ".") if pd.notna(val_ratio) else "Sin datos"
+    else:
+        ratio_kpi = "-"
+    etiqueta_ratio = f"Ratio alumnos/escuela ({nivel_activo})"
 elif len(niveles_sel) > 1:
     poblacion_kpi = "Múltiple"
     etiqueta_poblq = "Población Escolarizada"
+    ratio_kpi = "-"
+    etiqueta_ratio = "Ratio alumnos / escuela"
 else:
     poblacion_kpi = POBLACION_INDEC_TOTAL
     etiqueta_poblq = "Población Escolarizada"
+    ratio_kpi = "-"
+    etiqueta_ratio = "Ratio alumnos / escuela"
 
 k1, k2, k3, k4, k5 = st.columns(5)
 k1.metric("Establecimientos filtrados", f"{len(df_filtrado):,}".replace(",", "."))
@@ -507,7 +520,8 @@ k2.metric(
     help="⚠️ Dato correspondiente al Censo INDEC 2022 (departamento Capital). Nota metodológica: no se encuentra desagregado por barrio ni por modalidad."
 )
 
-k3.metric("Mayor demanda", "Secundaria (50.204)")
+k3.metric(etiqueta_ratio, ratio_kpi, help="Relación entre la demanda poblacional del INDEC y la oferta de establecimientos para el nivel seleccionado.")
+
 if not df_filtrado.empty:
     conteo_barrios = df_filtrado["BARRIOS_CORREGIDO"].value_counts()
     top_barrio = conteo_barrios.index[0]
@@ -856,12 +870,12 @@ with st.expander("📚 Metodología, fuentes y limitaciones del tablero"):
   * *Inicial:* salas 4 y 5 (11.116 asistencias).
   * *Primaria:* 46.040 asistencias.
   * *Secundaria:* 50.204 asistencias.
-  * *Superior no universitario/ terciario:* 16.331 asistencias. En este tablero, Nivel superior, es referido a pre-grado exclusivamente.
+  * *Superior / terciario:* 16.331 asistencias.
 - **Barrios sin oferta dinámicos:** se identifican mediante una relación espacial vectorial (*Spatial Join*) entre las coordenadas de los establecimientos filtrados y los polígonos barriales. Cuando el usuario selecciona un nivel específico (ej. Secundaria), el contador suma de forma estricta los barrios que carecen de establecimientos habilitados para dicho nivel.
 
 ### 3. Límites del tablero
 - **Demanda poblacional (INDEC 2022) y Superior Universitario/posgrado:** La base de datos municipal no contiene relevamiento de educación formal de grado universitario o posgrados amplios, lo que excluye del conteo de población asistente a estos últimos y reduce la referencia de 161.863 a **131.012 estudiantes**, logrando así un cruce fiel en función de los niveles que coinciden en ambas bases de datos. Adicionalmente, se aclara que las cifras censales de demanda están estructuradas por niveles tradicionales, por lo que la población de Jóvenes y Adultos (EPJA) se encuentra implícitamente contemplada dentro de los totales generales de primaria y secundaria del Censo, mientras que en la oferta municipal se registra de forma desagregada por modalidad.
-- **Coordenadas:** el 82% de los establecimientos en el padrón oficial poseen ubicación marcada como "aproximada", lo cual puede generar leves desplazamientos espaciales en los límites vecinales al realizar el cruce.
+- **Coordenadas:** el 82% de los establecimientos en el padrón oficial poseen ubicación marcada como "aproximada", o bien proceden de fuentes abiertas municipales, lo cual puede generar leves desplazamientos espaciales en los límites vecinales al realizar el cruce.
 - **Casos rurales o periféricos:** establecimientos rurales específicos o ubicados en parajes y asentamientos alejados se evalúan según su coordenada frente al polígono correspondiente.
 - **Desfase temporal (INDEC 2022 vs. padrón 2025):** se cruzan datos de demanda poblacional del Censo Nacional 2022 con un padrón de oferta educativa actualizado a 2025. Esto implica que la foto demográfica y la infraestructura escolar no corresponden estrictamente al mismo año calendario, lo cual debe considerarse al analizar ratios de cobertura en zonas de expansión urbana.
 """

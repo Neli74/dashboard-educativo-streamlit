@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Iterable
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -46,6 +47,8 @@ MAPA_MODALIDADES = {
     "M. COMUN": "Común",
 }
 
+MODALIDAD_NO_APLICA = "No aplica (Superior / SNU)"
+
 COLORES_NIVELES = {
     "Secundaria": "#56CCF2",
     "Primaria": "#2D9CDB",
@@ -64,6 +67,7 @@ COLORES_MODALIDADES = {
     "Jóvenes y Adultos (EPJA)": "#F2994A",
     "Contexto de Encierro": "#EB5757",
     "Bilingüe": "#BB6BD9",
+    MODALIDAD_NO_APLICA: "#94A3B8",
 }
 
 COLOR_TEXTO = "#EAF2FF"
@@ -104,6 +108,18 @@ def es_uno(serie: pd.Series) -> pd.Series:
     return (numerica | afirmativos).fillna(False)
 
 
+def limpiar_coordenada(serie: pd.Series, limite_abs: float) -> pd.Series:
+    s = pd.to_numeric(
+        serie.astype(str).str.replace(",", ".", regex=False).str.strip(),
+        errors="coerce",
+    )
+    mask = s.notna() & (s.abs() > limite_abs)
+    while mask.any():
+        s.loc[mask] = s.loc[mask] / 10.0
+        mask = s.notna() & (s.abs() > limite_abs)
+    return s
+
+
 def formatear_identificador(valor) -> str:
     if pd.isna(valor):
         return "No informado"
@@ -140,7 +156,7 @@ def clasificar_nivel_original(df: pd.DataFrame) -> pd.Series:
 
 
 def clasificar_modalidad_original(df: pd.DataFrame) -> pd.Series:
-    resultado = pd.Series("Común", index=df.index, dtype="string")
+    resultado = pd.Series(MODALIDAD_NO_APLICA, index=df.index, dtype="string")
     for columna, etiqueta in reversed(list(MAPA_MODALIDADES.items())):
         if columna in df.columns:
             resultado.loc[es_uno(df[columna])] = etiqueta
@@ -261,8 +277,8 @@ def cargar_datos(
 
     if col_barrio != "BARRIOS_CORREGIDO":
         df_esc["BARRIOS_CORREGIDO"] = df_esc[col_barrio]
-    df_esc["LATITUD"] = pd.to_numeric(df_esc[col_latitud], errors="coerce")
-    df_esc["LONGITUD"] = pd.to_numeric(df_esc[col_longitud], errors="coerce")
+    df_esc["LATITUD"] = limpiar_coordenada(df_esc[col_latitud], 90.0)
+    df_esc["LONGITUD"] = limpiar_coordenada(df_esc[col_longitud], 180.0)
     df_esc["NOMBRE_DISPLAY"] = (
         df_esc[col_nombre].fillna("Sin nombre").astype(str).str.strip()
         if col_nombre
@@ -281,7 +297,7 @@ def cargar_datos(
         df_esc, MAPA_NIVELES, "No especificado"
     )
     df_esc["Modalidades_Disponibles"] = lista_de_flags(
-        df_esc, MAPA_MODALIDADES, "Sin especificar"
+        df_esc, MAPA_MODALIDADES, MODALIDAD_NO_APLICA
     )
 
     gdf_barrios = obtener_geometrias_barrios(ruta_geojson)
@@ -430,6 +446,7 @@ orden_modalidades = [
     "Jóvenes y Adultos (EPJA)",
     "Contexto de Encierro",
     "Bilingüe",
+    MODALIDAD_NO_APLICA,
 ]
 modalidades_presentes = [
     modalidad
@@ -494,7 +511,6 @@ if len(niveles_sel) == 1 and sin_otros_filtros:
     poblacion_kpi = POBLACION_INDEC_NIVELES.get(nivel_activo, {}).get("texto", POBLACION_INDEC_TOTAL)
     etiqueta_poblq = f"Población ({nivel_activo})"
 
-    # Obtener el ratio específico del nivel activo desde el dataframe de demanda
     fila_demanda_nivel = df_demanda[df_demanda["Nivel"] == nivel_activo]
     if not fila_demanda_nivel.empty:
         val_ratio = fila_demanda_nivel.iloc[0]["Ratio_Alumnos_x_Escuela"]
@@ -583,6 +599,18 @@ with col_mapa:
         df_filtrado["LATITUD"].between(-90, 90)
         & df_filtrado["LONGITUD"].between(-180, 180)
     ].dropna(subset=["LATITUD", "LONGITUD"]).copy()
+
+    # Separar levemente (~12m) los puntos que comparten exactamente las mismas coordenadas
+    # para que no queden ocultos uno debajo del otro al hacer zoom
+    duplicados_coord = df_puntos.duplicated(subset=["LATITUD", "LONGITUD"], keep=False)
+    if duplicados_coord.any():
+        rng = np.random.default_rng(42)
+        df_puntos.loc[duplicados_coord, "LATITUD"] += rng.uniform(
+            -0.00011, 0.00011, size=int(duplicados_coord.sum())
+        )
+        df_puntos.loc[duplicados_coord, "LONGITUD"] += rng.uniform(
+            -0.00011, 0.00011, size=int(duplicados_coord.sum())
+        )
 
     campo_color = "Nivel_Oferta" if criterio_color == "Nivel educativo" else "Modalidad_Display"
     paleta_actual = COLORES_NIVELES if criterio_color == "Nivel educativo" else COLORES_MODALIDADES

@@ -487,11 +487,13 @@ df_filtrado = df_filtrado.copy()
 # -----------------------------------------------------------------------------
 st.title("Establecimientos Educativos en Corrientes - INDEC vs Oferta")
 
-if len(niveles_sel) == 1:
+sin_otros_filtros = not modalidades_sel and not barrios_sel
+
+if len(niveles_sel) == 1 and sin_otros_filtros:
     nivel_activo = niveles_sel[0]
     poblacion_kpi = POBLACION_INDEC_NIVELES.get(nivel_activo, {}).get("texto", POBLACION_INDEC_TOTAL)
     etiqueta_poblq = f"Población ({nivel_activo})"
-    
+
     # Obtener el ratio específico del nivel activo desde el dataframe de demanda
     fila_demanda_nivel = df_demanda[df_demanda["Nivel"] == nivel_activo]
     if not fila_demanda_nivel.empty:
@@ -501,12 +503,12 @@ if len(niveles_sel) == 1:
         ratio_kpi = "-"
     etiqueta_ratio = f"Ratio alumnos/escuela ({nivel_activo})"
 elif len(niveles_sel) > 1:
-    poblacion_kpi = "Múltiple"
+    poblacion_kpi = "Múltiple" if sin_otros_filtros else "-"
     etiqueta_poblq = "Población Escolarizada"
     ratio_kpi = "-"
     etiqueta_ratio = "Ratio alumnos / escuela"
 else:
-    poblacion_kpi = POBLACION_INDEC_TOTAL
+    poblacion_kpi = POBLACION_INDEC_TOTAL if sin_otros_filtros else "-"
     etiqueta_poblq = "Población Escolarizada"
     ratio_kpi = "-"
     etiqueta_ratio = "Ratio alumnos / escuela"
@@ -520,7 +522,11 @@ k2.metric(
     help="⚠️ Dato correspondiente al Censo INDEC 2022 (departamento Capital). Nota metodológica: no se encuentra desagregado por barrio ni por modalidad."
 )
 
-k3.metric(etiqueta_ratio, ratio_kpi, help="Relación entre la demanda poblacional del INDEC y la oferta de establecimientos para el nivel seleccionado.")
+k3.metric(
+    etiqueta_ratio,
+    ratio_kpi,
+    help="Relación entre la demanda poblacional del INDEC y la oferta de establecimientos para el nivel seleccionado."
+)
 
 if not df_filtrado.empty:
     conteo_barrios = df_filtrado["BARRIOS_CORREGIDO"].value_counts()
@@ -703,8 +709,12 @@ with col_mapa:
                 )
             )
 
+    clave_vista_mapa = f"vista_{'_'.join(barrios_sel)}" if barrios_sel else "vista_general"
+
     fig_mapa.update_layout(
         template="plotly_dark",
+        uirevision=clave_vista_mapa,
+        dragmode="pan",
         margin={"l": 0, "r": 0, "t": 12, "b": 0},
         legend={
             "orientation": "h",
@@ -722,7 +732,11 @@ with col_mapa:
     st.plotly_chart(
         fig_mapa,
         use_container_width=True,
-        config={"scrollZoom": True, "displayModeBar": False},
+        config={
+            "scrollZoom": True,
+            "displayModeBar": True,
+            "modeBarButtonsToRemove": ["select2d", "lasso2d", "toImage"],
+        },
         key="mapa_interactivo",
     )
 
